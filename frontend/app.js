@@ -366,6 +366,32 @@ async function boot() {
   let cfg = null;
   try { cfg = await (await fetch("/api/config")).json(); } catch (e) { setConn("server unreachable, retrying…", "bad"); setTimeout(boot, 3000); return; }
   Auth.init(cfg.auth || { mode: "off" });
+  const notice = consumeAuthFragment();
+  if (notice) { showAuth(notice.message, notice.ok); if (!notice.ok) return; }
   connect();
+}
+
+// Supabase email links (confirmation, recovery, magic link) redirect back to the Site URL with the
+// outcome in the URL fragment: either a session (#access_token=...&refresh_token=...) or an error
+// (#error=...&error_description=...). Fragments never reach the server; handle them here, then
+// scrub the URL so tokens do not linger in history.
+function consumeAuthFragment() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (!h.has("access_token") && !h.has("error")) return null;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (h.get("error")) {
+    const code = h.get("error_code") || h.get("error");
+    const msg = code === "otp_expired"
+      ? "That email link was already used or has expired. If you already clicked it once, your account is confirmed: just sign in."
+      : (h.get("error_description") || code).replace(/\+/g, " ");
+    return { ok: false, message: msg };
+  }
+  if (!Auth.required) return null;
+  let email = null;
+  try { email = JSON.parse(atob(h.get("access_token").split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email || null; } catch (e) { /* cosmetic only */ }
+  Auth.save({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"),
+              expires_in: Number(h.get("expires_in")) || 3600, user: { email } });
+  return { ok: true, message: h.get("type") === "signup" ? "Email confirmed. Signing you in…" : "Signing you in…" };
 }
 boot();
