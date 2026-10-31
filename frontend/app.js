@@ -26,6 +26,59 @@ if (!sid) { sid = "s_" + Math.random().toString(36).slice(2, 12); sessionStorage
 const S = { ws: null, config: null, memoryEnabled: false, running: false, cycleStart: {}, proposals: [], chosen: null,
             retrieved: [], dropped: {}, timer: null };
 
+// ------------------------------------------------------------------ auth (Supabase email + password)
+// Talks to the project's GoTrue REST API directly; the backend only ever sees the resulting access token.
+// Tokens live in localStorage (same-origin only). The server verifies them against the project's JWKS.
+const Auth = {
+  cfg: null, session: null,
+  get required() { return !!(this.cfg && this.cfg.mode === "supabase"); },
+  init(cfg) {
+    this.cfg = cfg;
+    try { this.session = JSON.parse(localStorage.getItem("brain_auth") || "null"); } catch (e) { this.session = null; }
+  },
+  save(sess) {
+    this.session = sess ? { access_token: sess.access_token, refresh_token: sess.refresh_token,
+                            expires_at: Math.floor(Date.now() / 1000) + (sess.expires_in || 3600), email: sess.user && sess.user.email } : null;
+    if (this.session) localStorage.setItem("brain_auth", JSON.stringify(this.session)); else localStorage.removeItem("brain_auth");
+  },
+  async gotrue(path, body, token) {
+    const headers = { "Content-Type": "application/json", apikey: this.cfg.publishable_key };
+    if (token) headers.Authorization = "Bearer " + token;
+    const res = await fetch(this.cfg.supabase_url + "/auth/v1/" + path, { method: "POST", headers, body: JSON.stringify(body || {}) });
+    const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.msg || data.error_description || data.message || ("auth error " + res.status));
+    return data;
+  },
+  signIn(email, password) { return this.gotrue("token?grant_type=password", { email, password }).then((d) => { this.save(d); return d; }); },
+  signUp(email, password) { return this.gotrue("signup", { email, password }); },
+  async signOut() {
+    const t = this.session && this.session.access_token; this.save(null);
+    if (t) await this.gotrue("logout", {}, t).catch(() => {});
+  },
+  async token() {
+    if (!this.required) return null;
+    if (!this.session) return null;
+    if (this.session.expires_at - 60 > Date.now() / 1000) return this.session.access_token;
+    try { this.save(await this.gotrue("token?grant_type=refresh_token", { refresh_token: this.session.refresh_token })); return this.session.access_token; }
+    catch (e) { this.save(null); return null; }
+  },
+};
+
+function showAuth(msg, ok) {
+  document.body.classList.add("locked");
+  $("#auth-panel").hidden = false; $("#user-chip").hidden = true; $("#sign-out").hidden = true;
+  const m = $("#auth-msg"); m.textContent = msg || ""; m.className = ok ? "ok" : "err";
+  setConn("signed out", "bad");
+}
+function hideAuth() {
+  document.body.classList.remove("locked");
+  $("#auth-panel").hidden = true;
+  if (Auth.required) {
+    $("#user-chip").textContent = Auth.session && Auth.session.email ? Auth.session.email : "signed in";
+    $("#user-chip").hidden = false; $("#sign-out").hidden = false;
+  }
+}
+
 // ------------------------------------------------------------------ rail
 function resetRail() {
   const rail = $("#rail"); rail.replaceChildren();
@@ -37,12 +90,18 @@ function lightStage(id, note) {
 }
 
 // ------------------------------------------------------------------ connection
-function connect() {
+async function connect() {
+  const token = await Auth.token();
+  if (Auth.required && !token) { showAuth(); return; }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/${sid}`);
   S.ws = ws;
-  ws.onopen = () => setConn("connected", "ok");
-  ws.onclose = () => { setConn("disconnected, retrying…", "bad"); setRunning(false); setTimeout(connect, 2000); };
+  ws.onopen = () => { if (token) ws.send(JSON.stringify({ type: "auth", token })); setConn("connected", "ok"); };
+  ws.onclose = (e) => {
+    setRunning(false);
+    if (e.code === 4401) { Auth.save(null); showAuth("Your session is no longer valid. Sign in again."); return; }
+    setConn("disconnected, retrying…", "bad"); setTimeout(connect, 2000);
+  };
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.type === "hello") onHello(msg);
@@ -56,6 +115,7 @@ function setRunning(v) { S.running = v; $("#cancel").disabled = !v; $("#send").t
 
 function onHello(msg) {
   S.config = msg.config; S.memoryEnabled = msg.state.memory_enabled;
+  hideAuth();
   $("#memory-toggle").checked = S.memoryEnabled;
   const mock = msg.config.model.is_mock;
   $("#mock-banner").hidden = !mock;
@@ -232,7 +292,11 @@ function onResult(r) {
 
 async function api(method, path, body) {
   try {
-    const res = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    const headers = body ? { "Content-Type": "application/json" } : {};
+    const token = await Auth.token();
+    if (token) headers.Authorization = "Bearer " + token;
+    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    if (res.status === 401 && Auth.required) { Auth.save(null); showAuth("Signed out: " + ((await res.json().catch(() => ({}))).error || "sign in again")); }
     return await res.json();
   } catch (e) { return { error: "request failed" }; }
 }
@@ -267,6 +331,28 @@ $("#memory-toggle").addEventListener("change", async (e) => {
   S.memoryEnabled = !!res.memory_enabled; e.target.checked = S.memoryEnabled;
 });
 $("#new-session").addEventListener("click", () => { sessionStorage.removeItem("brain_sid"); location.reload(); });
+$("#auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#auth-signin").disabled = true;
+  try { await Auth.signIn($("#auth-email").value.trim(), $("#auth-password").value); $("#auth-msg").textContent = ""; $("#auth-password").value = ""; connect(); }
+  catch (err) { showAuth(err.message); }
+  finally { $("#auth-signin").disabled = false; }
+});
+$("#auth-signup").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim(), password = $("#auth-password").value;
+  if (!email || password.length < 6) { showAuth("Enter an email and a password of at least 6 characters."); return; }
+  $("#auth-signup").disabled = true;
+  try {
+    const d = await Auth.signUp(email, password);
+    if (d.access_token) { Auth.save(d); connect(); }
+    else showAuth("Account created. Check " + email + " for a confirmation link, then sign in.", true);
+  } catch (err) { showAuth(err.message); }
+  finally { $("#auth-signup").disabled = false; }
+});
+$("#sign-out").addEventListener("click", async () => {
+  if (S.ws) { S.ws.onclose = null; S.ws.close(); S.ws = null; }
+  await Auth.signOut(); sessionStorage.removeItem("brain_sid"); location.reload();
+});
 $("#mem-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = $("#mem-text").value.trim(); if (!text) return;
@@ -275,5 +361,11 @@ $("#mem-form").addEventListener("submit", async (e) => {
   loadMemories();
 });
 
-resetRail();
-connect();
+async function boot() {
+  resetRail();
+  let cfg = null;
+  try { cfg = await (await fetch("/api/config")).json(); } catch (e) { setConn("server unreachable, retrying…", "bad"); setTimeout(boot, 3000); return; }
+  Auth.init(cfg.auth || { mode: "off" });
+  connect();
+}
+boot();

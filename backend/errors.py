@@ -20,6 +20,14 @@ class MemoryRejected(BrainError):
     """A long-term memory write was refused (empty, too long, limit reached...)."""
 
 
+class MemoryUnavailable(BrainError):
+    """The memory backend could not be reached or refused the caller (network, 401/403, timeout)."""
+
+
+class AuthRequired(BrainError):
+    """The request carried no usable credential (missing, malformed, expired or wrong-audience token)."""
+
+
 class ModelError(BrainError):
     """Base class for model-adapter problems."""
 

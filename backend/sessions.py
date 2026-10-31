@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from .config import Settings
 from .context import CycleContext
 from .errors import InputRejected, NotFound
+from .memory.base import LOCAL, Owner
 from .schemas import utcnow_iso
 from .workspace import Workspace
 
@@ -17,12 +18,16 @@ HISTORY_MAX_EXCHANGES = 12
 HISTORY_MAX_CHARS = 24000
 
 _SID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# Internal ids are "<owner user id>:<client sid>" when auth is on, so two users' "default" sessions
+# (and their event streams) can never collide. Owner ids are Supabase UUIDs.
+_SCOPED = re.compile(r"^(?:[0-9a-fA-F-]{1,36}:)?[A-Za-z0-9_-]{1,64}$")
 
 
 @dataclass
 class Session:
     session_id: str
     workspace: Workspace
+    owner: Owner = LOCAL                             # refreshed on every authenticated request (token rotates)
     memory_enabled: bool = False                      # persistent memory is opt-in
     current_cycle_id: Optional[str] = None
     task: Optional["asyncio.Task"] = None
@@ -72,8 +77,15 @@ class SessionManager:
             raise InputRejected("session id must be 1-64 characters: letters, digits, '-' or '_'")
         return session_id
 
+    @classmethod
+    def scoped_id(cls, owner: Owner, session_id: str) -> str:
+        """Namespace a client-chosen session id by its owner. LOCAL (auth off) keeps the bare id."""
+        cls.validate_id(session_id)
+        return session_id if owner is LOCAL or owner.user_id == LOCAL.user_id else f"{owner.user_id}:{session_id}"
+
     def get(self, session_id: str, create: bool = True) -> Session:
-        self.validate_id(session_id)
+        if not isinstance(session_id, str) or not _SCOPED.match(session_id):
+            raise InputRejected("session id must be 1-64 characters: letters, digits, '-' or '_'")
         s = self._sessions.get(session_id)
         if s is None:
             if not create:

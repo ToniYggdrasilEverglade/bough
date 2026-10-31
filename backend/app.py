@@ -1,5 +1,9 @@
 """FastAPI transport layer: REST + WebSocket. All behaviour lives in the Orchestrator; this file only
-validates requests, enforces the localhost/Origin policy and forwards real backend events."""
+validates requests, enforces the Origin policy and authentication, and forwards real backend events.
+
+Auth: with BRAIN_AUTH_MODE=supabase every /api route except GET /api/config needs
+`Authorization: Bearer <supabase access token>`; the WebSocket must send
+{"type": "auth", "token": "..."} as its first frame. Session ids are namespaced per user."""
 from __future__ import annotations
 
 import asyncio
@@ -10,14 +14,15 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .auth import Authenticator, Principal
 from .config import LOOPBACK_HOSTS, Settings
-from .errors import BrainError, InputRejected, MemoryRejected, NotFound
-from .memory.store import MemoryStore
+from .errors import AuthRequired, BrainError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound
+from .memory import MemoryBackend, build_store
 from .models.base import ModelAdapter
 from .models.factory import build_adapter
 from .orchestrator import Orchestrator
@@ -65,20 +70,23 @@ def _origin_allowed(origin: Optional[str]) -> bool:
             if value.strip()
         }
 
-        print(f"Allowed origins: {allowed}")
-        print(f"Request origin: {origin}")
-        return origin in allowed
+        return origin.rstrip("/") in allowed
 
     except ValueError:
         return False
 
 
 def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapter] = None,
-               store: Optional[MemoryStore] = None) -> FastAPI:
+               store: Optional[MemoryBackend] = None, authenticator: Optional[Authenticator] = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    store = store or MemoryStore(settings.db_path, settings.max_memory_records)
+    store = store or build_store(settings)
     adapter = adapter or build_adapter(settings)
+    auth = authenticator or Authenticator(settings)
     orch = Orchestrator(settings, store, adapter)
+    if auth.required:
+        log.info("auth: supabase (%s); memory backend: %s", settings.supabase_url, store.name)
+    else:
+        log.info("auth: off (single local user); memory backend: %s", store.name)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -87,11 +95,20 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
 
     app = FastAPI(title="Brain AI prototype", lifespan=lifespan)
     app.state.orch = orch
+    app.state.auth = auth
 
     @app.exception_handler(BrainError)
     async def brain_error(_, exc: BrainError):
-        code = 404 if isinstance(exc, NotFound) else 409 if isinstance(exc, MemoryRejected) else 400
-        return JSONResponse({"error": str(exc)}, status_code=code)
+        code = (401 if isinstance(exc, AuthRequired) else 404 if isinstance(exc, NotFound)
+                else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, MemoryUnavailable) else 400)
+        headers = {"WWW-Authenticate": "Bearer"} if code == 401 else None
+        return JSONResponse({"error": str(exc)}, status_code=code, headers=headers)
+
+    async def current_user(authorization: Optional[str] = Header(default=None)) -> Optional[Principal]:
+        return await auth.authenticate(auth.bearer(authorization))
+
+    def bind(principal: Optional[Principal], sid: str, create: bool = True) -> str:
+        return orch.bind(auth.owner_of(principal), sid, create=create)
 
     # ------------------------------------------------------------------ REST
     @app.get("/api/config")
@@ -99,64 +116,93 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
         return orch.describe()
 
     @app.get("/api/sessions/{sid}")
-    async def get_session(sid: str):
-        return orch.session_state(sid)
+    async def get_session(sid: str, user: Optional[Principal] = Depends(current_user)):
+        return orch.session_state(bind(user, sid))
 
     @app.put("/api/sessions/{sid}/settings")
-    async def put_settings(sid: str, body: SettingsBody):
-        return orch.set_memory_enabled(sid, body.memory_enabled)
+    async def put_settings(sid: str, body: SettingsBody, user: Optional[Principal] = Depends(current_user)):
+        return orch.set_memory_enabled(bind(user, sid), body.memory_enabled)
 
     @app.post("/api/sessions/{sid}/chat")
-    async def chat(sid: str, body: ChatBody):
-        return await orch.process(sid, body.text)
+    async def chat(sid: str, body: ChatBody, user: Optional[Principal] = Depends(current_user)):
+        return await orch.process(bind(user, sid), body.text)
 
     @app.post("/api/sessions/{sid}/cancel")
-    async def cancel(sid: str):
-        return {"cancelled": await orch.cancel(sid)}
+    async def cancel(sid: str, user: Optional[Principal] = Depends(current_user)):
+        return {"cancelled": await orch.cancel(bind(user, sid, create=False))}
 
     @app.post("/api/sessions/{sid}/feedback")
-    async def feedback(sid: str, body: FeedbackBody):
-        return await orch.record_feedback(sid, body.cycle_id, body.rating)
+    async def feedback(sid: str, body: FeedbackBody, user: Optional[Principal] = Depends(current_user)):
+        return await orch.record_feedback(bind(user, sid, create=False), body.cycle_id, body.rating)
 
     @app.post("/api/sessions/{sid}/cycles/{cid}/save-summary")
-    async def save_summary(sid: str, cid: str):
-        return await orch.save_summary(sid, cid)
+    async def save_summary(sid: str, cid: str, user: Optional[Principal] = Depends(current_user)):
+        return await orch.save_summary(bind(user, sid, create=False), cid)
 
     @app.get("/api/memories")
-    async def list_memories():
-        recs = await asyncio.to_thread(store.list)
+    async def list_memories(user: Optional[Principal] = Depends(current_user)):
+        recs = await asyncio.to_thread(store.list, auth.owner_of(user))
         return {"memories": [r.to_dict() for r in recs]}
 
     @app.post("/api/memories")
-    async def add_memory(body: MemoryBody):
-        rec, created = await asyncio.to_thread(store.add, body.text, body.kind, "user_stated")
+    async def add_memory(body: MemoryBody, user: Optional[Principal] = Depends(current_user)):
+        rec, created = await asyncio.to_thread(store.add, auth.owner_of(user), body.text, body.kind, "user_stated")
         return {"created": created, "record": rec.to_dict()}
 
     @app.delete("/api/memories/{mid}")
-    async def delete_memory(mid: str):
-        if not await asyncio.to_thread(store.delete, mid):
+    async def delete_memory(mid: str, user: Optional[Principal] = Depends(current_user)):
+        if not await asyncio.to_thread(store.delete, auth.owner_of(user), mid):
             raise HTTPException(404, "memory not found")
         return {"deleted": mid}
 
     @app.get("/api/adaptation")
-    async def adaptation():
-        return {"bias": await asyncio.to_thread(store.get_all_bias),
+    async def adaptation(user: Optional[Principal] = Depends(current_user)):
+        return {"bias": await asyncio.to_thread(store.get_all_bias, auth.owner_of(user)),
                 "limit": settings.bias_limit, "step": settings.bias_step,
                 "explanation": orch.describe()["adaptation"]}
 
+    @app.get("/api/me")
+    async def me(user: Optional[Principal] = Depends(current_user)):
+        if user is None:
+            return {"auth": "off", "user_id": "local", "email": None}
+        return {"auth": "supabase", "user_id": user.user_id, "email": user.email, "expires_at": user.expires_at}
+
     # ------------------------------------------------------------------ WebSocket
-    @app.websocket("/ws/{sid}")
-    async def ws(websocket: WebSocket, sid: str):
+    @app.websocket("/ws/{client_sid}")
+    async def ws(websocket: WebSocket, client_sid: str):
         if not _origin_allowed(websocket.headers.get("origin")):
             await websocket.close(code=1008)
             return
         try:
-            orch.sessions.get(sid)
+            orch.sessions.validate_id(client_sid)
         except InputRejected:
             await websocket.close(code=1008)
             return
         await websocket.accept()
         lock = asyncio.Lock()
+
+        # Browsers cannot set headers on WebSocket upgrades, so the token travels in the first frame
+        # (never in the URL, which ends up in proxy and server logs). Unauthenticated sockets are closed
+        # before any session is created or any event is streamed.
+        principal: Optional[Principal] = None
+        if auth.required:
+            try:
+                first = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+                token = first.get("token") if isinstance(first, dict) and first.get("type") == "auth" else None
+                principal = await auth.authenticate(token if isinstance(token, str) else None)
+            except (AuthRequired, asyncio.TimeoutError, ValueError, WebSocketDisconnect) as e:
+                if not isinstance(e, WebSocketDisconnect):
+                    try:
+                        await websocket.send_json({"type": "error", "message": str(e) or "authentication failed"})
+                        await websocket.close(code=4401)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return
+        try:
+            sid = bind(principal, client_sid)
+        except InputRejected:
+            await websocket.close(code=1008)
+            return
 
         async def send(obj):
             async with lock:
@@ -175,7 +221,8 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
                 pass
 
         try:
-            await send({"type": "hello", "state": orch.session_state(sid), "config": orch.describe()})
+            await send({"type": "hello", "state": orch.session_state(sid), "config": orch.describe(),
+                        "user": {"user_id": principal.user_id, "email": principal.email} if principal else None})
             while True:
                 msg = await websocket.receive_json()
                 kind = msg.get("type") if isinstance(msg, dict) else None

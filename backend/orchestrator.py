@@ -34,13 +34,14 @@ from .agents.planning import Planner
 from .agents.selection import RULES_TEXT, Selector
 from .config import Settings
 from .context import CycleContext, ModelBudget
-from .errors import (BrainError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, NotFound,
+from .errors import (BrainError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, MemoryUnavailable, NotFound,
                      StaleCycleError)
 from .event_bus import EventBus
-from .memory.store import MemoryStore
+from .memory.base import MemoryBackend
 from .models.base import ModelAdapter
 from .models.gateway import ModelGateway
 from .schemas import Event, EventType, RawInput, clip, jsonable, new_id, utcnow_iso
+from .memory.base import Owner
 from .sessions import Session, SessionManager
 from .web_tool import WebTool
 
@@ -49,7 +50,7 @@ ET = EventType
 
 
 class Orchestrator:
-    def __init__(self, settings: Settings, store: MemoryStore, adapter: ModelAdapter,
+    def __init__(self, settings: Settings, store: MemoryBackend, adapter: ModelAdapter,
                  bus: Optional[EventBus] = None):
         self.settings, self.store, self.adapter = settings, store, adapter
         self.bus = bus or EventBus(settings.max_events_per_cycle, settings.max_events_per_source_type)
@@ -69,9 +70,20 @@ class Orchestrator:
         return {"settings": self.settings.public_dict(),
                 "model": {"name": self.adapter.name, "is_mock": self.adapter.is_mock,
                           "backend": self.settings.model_backend},
+                "auth": {"mode": self.settings.auth_mode, "supabase_url": self.settings.supabase_url or None,
+                         "publishable_key": self.settings.supabase_publishable_key or None},
+                "memory": {"backend": self.store.name},
                 "criteria": CRITERIA, "selection_rules": RULES_TEXT, "adaptation": ADAPTATION_DOC,
                 "components": ["perception", "attention", "memory", "workspace", "planning", "evaluation",
                                "selection", "tool", "language", "feedback"]}
+
+    def bind(self, owner: Owner, session_id: str, create: bool = True) -> str:
+        """Resolve a client session id for `owner`, (re)attach the owner's current credentials to the
+        session, and return the internal id used by every other method."""
+        sid = self.sessions.scoped_id(owner, session_id)
+        sess = self.sessions.get(sid, create=create)
+        sess.owner = owner
+        return sid
 
     def session_state(self, session_id: str) -> Dict[str, Any]:
         s = self.sessions.get(session_id)
@@ -190,8 +202,12 @@ class Orchestrator:
             if not sess.memory_enabled:
                 return [], "memory_disabled"
             origins = ["user_stated", "system_summary"] + (["model_interpretation"] if s.include_model_interpretations else [])
-            rows = await asyncio.to_thread(self.store.search, raw.data, s.max_retrieved_memories * 3,
-                                           s.memory_min_score, origins)
+            try:
+                rows = await asyncio.to_thread(self.store.search, sess.owner, raw.data, s.max_retrieved_memories * 3,
+                                               s.memory_min_score, origins)
+            except MemoryUnavailable as e:        # remote backend down: degrade to "no memories", say so
+                log.warning("memory retrieval unavailable: %s", e)
+                return [], f"memory_unavailable: {e}"
             return rows, None
 
         async def perceive():
@@ -323,7 +339,12 @@ class Orchestrator:
         return {k: m.get(k) for k in ("id", "kind", "text", "origin", "trust", "score", "created_at")}
 
     async def _effective_bias(self, sess: Session) -> Dict[str, float]:
-        persisted = await asyncio.to_thread(self.store.get_all_bias) if sess.memory_enabled else {}
+        persisted = {}
+        if sess.memory_enabled:
+            try:
+                persisted = await asyncio.to_thread(self.store.get_all_bias, sess.owner)
+            except MemoryUnavailable as e:
+                log.warning("bias lookup unavailable: %s", e)
         kinds = set(persisted) | set(sess.bias)
         return {k: self.adaptation.clamp(persisted.get(k, 0.0) + sess.bias.get(k, 0.0)) for k in kinds}
 
@@ -394,10 +415,10 @@ class Orchestrator:
         self._current(ctx, sess)                      # a stale cycle must not write
         try:
             rec, created = await asyncio.to_thread(
-                self.store.add, obs.save_text or "", obs.save_kind or "fact", "user_stated",
+                self.store.add, sess.owner, obs.save_text or "", obs.save_kind or "fact", "user_stated",
                 ctx.session_id, ctx.cycle_id)
             return {"status": "saved" if created else "duplicate", "record": rec.to_dict()}
-        except MemoryRejected as e:
+        except (MemoryRejected, MemoryUnavailable) as e:
             return {"status": "failed", "reason": str(e)}
         except Exception as e:  # noqa: BLE001
             log.exception("memory write failed")
@@ -462,8 +483,8 @@ class Orchestrator:
             raise InputRejected("this reply was already rated")
         kind, delta = rec["action_kind"], self.adaptation.delta(rating)
         if sess.memory_enabled:
-            old, new = await asyncio.to_thread(self.store.apply_bias_delta, kind, delta, self.settings.bias_limit)
-            await asyncio.to_thread(self.store.log_feedback, session_id, cycle_id, rec["proposal_id"], kind, rating)
+            old, new = await asyncio.to_thread(self.store.apply_bias_delta, sess.owner, kind, delta, self.settings.bias_limit)
+            await asyncio.to_thread(self.store.log_feedback, sess.owner, session_id, cycle_id, rec["proposal_id"], kind, rating)
             persisted = True
         else:
             old = sess.bias.get(kind, 0.0)
@@ -489,7 +510,7 @@ class Orchestrator:
             raise NotFound("no completed reply with that cycle id in this session")
         text = (f"On {utcnow_iso()[:10]} the user asked: “{clip(rec['user_text'], 160)}”; "
                 f"the system gave a {rec['action_kind']} reply.")
-        record, created = await asyncio.to_thread(self.store.add, text, "summary", "system_summary",
+        record, created = await asyncio.to_thread(self.store.add, sess.owner, text, "summary", "system_summary",
                                                   session_id, cycle_id)
         rec["summary_saved"] = True
         return {"created": created, "record": record.to_dict()}

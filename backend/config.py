@@ -39,7 +39,13 @@ class Settings:
     port: int = 8000
     allow_non_local_bind: bool = False
     # --- storage ---
+    memory_backend: str = "sqlite"         # "sqlite" | "supabase" (supabase requires auth_mode=supabase)
     db_path: str = "data/brain.sqlite3"
+    # --- auth (Supabase email+password; JWTs verified against the project's JWKS) ---
+    auth_mode: str = "off"                 # "off" (single local user, loopback only) | "supabase"
+    supabase_url: str = ""                 # https://<ref>.supabase.co
+    supabase_publishable_key: str = ""     # public by design (ships to the browser); RLS guards the data
+    jwks_cache_s: float = 3600.0
     # --- model adapter ---
     model_backend: str = "mock"            # "mock" | "http"
     model_url: str = field(default="http://127.0.0.1:11434/v1/chat/completions", repr=False)  # may embed credentials
@@ -97,6 +103,20 @@ class Settings:
             raise ValueError("timeouts must be > 0")
         if not (0 < self.bias_limit <= 0.5) or not (0 < self.bias_step <= self.bias_limit):
             raise ValueError("bias_step must be in (0, bias_limit] and bias_limit in (0, 0.5]")
+        if self.auth_mode not in ("off", "supabase"):
+            raise ValueError("BRAIN_AUTH_MODE must be 'off' or 'supabase'")
+        if self.memory_backend not in ("sqlite", "supabase"):
+            raise ValueError("BRAIN_MEMORY_BACKEND must be 'sqlite' or 'supabase'")
+        if self.auth_mode == "supabase" or self.memory_backend == "supabase":
+            u = urlsplit(self.supabase_url)
+            if u.scheme != "https" or not u.netloc or u.path not in ("", "/"):
+                raise ValueError("BRAIN_SUPABASE_URL must look like https://<ref>.supabase.co")
+            if not self.supabase_publishable_key:
+                raise ValueError("BRAIN_SUPABASE_PUBLISHABLE_KEY is required")
+        if self.memory_backend == "supabase" and self.auth_mode != "supabase":
+            raise ValueError("BRAIN_MEMORY_BACKEND=supabase needs BRAIN_AUTH_MODE=supabase (rows are per signed-in user)")
+        if self.jwks_cache_s <= 0:
+            raise ValueError("jwks_cache_s must be > 0")
 
     # ------------------------------------------------------------------
     @classmethod
@@ -122,6 +142,11 @@ class Settings:
             host=s("BRAIN_HOST", d.host), port=i("BRAIN_PORT", d.port),
             allow_non_local_bind=b("BRAIN_ALLOW_NON_LOCAL_BIND", d.allow_non_local_bind),
             db_path=s("BRAIN_DB_PATH", d.db_path),
+            memory_backend=s("BRAIN_MEMORY_BACKEND", d.memory_backend).lower(),
+            auth_mode=s("BRAIN_AUTH_MODE", d.auth_mode).lower(),
+            supabase_url=s("BRAIN_SUPABASE_URL", d.supabase_url).rstrip("/"),
+            supabase_publishable_key=s("BRAIN_SUPABASE_PUBLISHABLE_KEY", d.supabase_publishable_key),
+            jwks_cache_s=f("BRAIN_JWKS_CACHE_S", d.jwks_cache_s),
             model_backend=s("BRAIN_MODEL_BACKEND", d.model_backend).lower(),
             model_url=s("BRAIN_MODEL_URL", d.model_url), model_name=s("BRAIN_MODEL_NAME", d.model_name),
             model_api_key=s("BRAIN_MODEL_API_KEY", d.model_api_key),

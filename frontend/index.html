@@ -29,9 +29,25 @@
     <span class="chip" id="model-chip">model: …</span>
     <span class="chip" id="calls-chip" title="Model calls used in the current cycle">calls 0/0</span>
     <span class="chip" id="conn-chip">connecting…</span>
+    <span class="chip" id="user-chip" hidden></span>
     <button id="new-session" class="ghost" title="Start a fresh session with an empty workspace">New session</button>
+    <button id="sign-out" class="ghost" hidden>Sign out</button>
   </div>
 </header>
+
+<section id="auth-panel" class="auth" hidden aria-labelledby="auth-title">
+  <form id="auth-form" class="auth-card" autocomplete="on">
+    <h2 id="auth-title">Sign in</h2>
+    <p class="sub">This server requires an account. Memories, feedback and adaptation are stored per user.</p>
+    <label>Email <input id="auth-email" type="email" required autocomplete="username"></label>
+    <label>Password <input id="auth-password" type="password" required minlength="6" autocomplete="current-password"></label>
+    <div class="row">
+      <button type="submit" id="auth-signin">Sign in</button>
+      <button type="button" id="auth-signup" class="ghost">Create account</button>
+    </div>
+    <p id="auth-msg" class="err" role="alert"></p>
+  </form>
+</section>
 
 <ol class="rail" id="rail" aria-label="Processing pipeline"></ol>
 
