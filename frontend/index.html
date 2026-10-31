@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brain AI workbench</title>
+<link
+  rel="icon"
+  type="image/svg+xml"
+  href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23182029'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='40' font-weight='bold' fill='%238b9eff'%3EB%3C/text%3E%3C/svg%3E"
+/>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="mock-banner" class="banner" hidden>
+  Mock model active. Replies come from a deterministic rule-based stand-in: no real reasoning or learning is happening.
+</div>
+
+<header class="top">
+  <div class="brand">
+    <h1>Brain AI workbench</h1>
+    <p class="sub">One coordinated system. Every item below is a real backend event.</p>
+  </div>
+  <div class="controls">
+    <label class="toggle" title="Off by default. When off, nothing is read from or written to long-term memory.">
+      <input type="checkbox" id="memory-toggle">
+      <span>Persistent memory</span>
+    </label>
+    <span class="chip" id="model-chip">model: …</span>
+    <span class="chip" id="calls-chip" title="Model calls used in the current cycle">calls 0/0</span>
+    <span class="chip" id="conn-chip">connecting…</span>
+    <button id="new-session" class="ghost" title="Start a fresh session with an empty workspace">New session</button>
+  </div>
+</header>
+
+<ol class="rail" id="rail" aria-label="Processing pipeline"></ol>
+
+<main class="layout">
+  <section class="chat" aria-label="Chat">
+    <h2>Conversation</h2>
+    <div id="messages" class="messages" aria-live="polite">
+      <p class="empty">Send a message to run one processing cycle. Try “Remember that I prefer short answers” (with memory on), then open a new session and ask “What do I prefer?”.</p>
+    </div>
+    <form id="chat-form" autocomplete="off">
+      <textarea id="input" rows="2" maxlength="2000" placeholder="Type a message" aria-label="Message"></textarea>
+      <div class="row">
+        <button type="submit" id="send">Send</button>
+        <button type="button" id="cancel" class="ghost" disabled>Stop</button>
+        <span id="form-error" class="err" role="alert"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="inspector">
+    <div class="panel wide" id="selected-panel">
+      <h2>Selected action</h2>
+      <div id="selected" class="body"><p class="empty">Nothing selected yet.</p></div>
+    </div>
+
+    <div class="panel" id="proposals-panel">
+      <h2>Proposals and evaluation</h2>
+      <div id="proposals" class="body"><p class="empty">Proposals appear after planning.</p></div>
+    </div>
+
+    <div class="panel" id="retrieved-panel">
+      <h2>Retrieved memories</h2>
+      <div id="retrieved" class="body"><p class="empty">No retrieval yet.</p></div>
+    </div>
+
+    <div class="panel" id="workspace-panel">
+      <h2>Workspace <span class="count" id="ws-count"></span></h2>
+      <div id="observation" class="body small"></div>
+      <div id="workspace" class="body"><p class="empty">Empty.</p></div>
+    </div>
+
+    <div class="panel" id="timeline-panel">
+      <h2>Event timeline</h2>
+      <ol id="timeline" class="timeline"><li class="empty">No events yet.</li></ol>
+    </div>
+
+    <div class="panel wide" id="memory-panel">
+      <h2>Long-term memory <span class="count" id="mem-count"></span></h2>
+      <form id="mem-form" class="row">
+        <input id="mem-text" type="text" maxlength="500" placeholder="Add a memory yourself" aria-label="Memory text">
+        <select id="mem-kind" aria-label="Memory kind"><option>fact</option><option>preference</option></select>
+        <button type="submit">Save</button>
+      </form>
+      <ul id="memories" class="memlist"><li class="empty">No saved memories.</li></ul>
+    </div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
