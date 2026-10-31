@@ -1,0 +1,6 @@
+# Brain AI backend — Python 3.10+
+# Run from the brain_ai/ directory:  python -m backend
+fastapi>=0.110
+uvicorn[standard]>=0.29   # [standard] pulls in websockets, needed for the /ws endpoint
+pydantic>=2.0
+python-dotenv>=1.0        # optional: loads .env; config.py falls back gracefully if absent
