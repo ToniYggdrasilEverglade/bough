@@ -1,7 +1,13 @@
 """Central orchestrator: runs one bounded processing cycle per request.
 
     input -> perception || memory retrieval -> attention -> workspace -> planning -> evaluation
-          -> action selection -> (memory write) -> language -> final response -> [feedback]
+          -> action selection -> (tool: web_fetch) -> (memory write) -> language -> final response -> [feedback]
+
+Tool note: the only executable action is `web_fetch`, and it runs only when selection picked a
+rule-originated proposal created by the explicit `/fetch <url> [question]` command (model-proposed
+web_fetch is blocked by evaluation). The URL goes to WebTool, which defers to the trusted wrapper +
+Rust CLI for allowlisting, DNS/IP policy and size limits; the model never chooses URLs. The result
+is posted to the workspace and handed to the language agent as untrusted source text.
 
 Memory write note: the prompt lists storage after language output. Here the (rule-based) write is
 committed right after selection and BEFORE verbalisation so the reply can report what really
@@ -36,6 +42,7 @@ from .models.base import ModelAdapter
 from .models.gateway import ModelGateway
 from .schemas import Event, EventType, RawInput, clip, jsonable, new_id, utcnow_iso
 from .sessions import Session, SessionManager
+from .web_tool import WebTool
 
 log = logging.getLogger("brain.orchestrator")
 ET = EventType
@@ -55,6 +62,7 @@ class Orchestrator:
         self.selector = Selector(settings)
         self.language = LanguageAgent(settings, self.gateway)
         self.adaptation = Adaptation(settings)
+        self.web_tool = WebTool(settings)
 
     # ================================================================ public API
     def describe(self) -> Dict[str, Any]:
@@ -63,7 +71,7 @@ class Orchestrator:
                           "backend": self.settings.model_backend},
                 "criteria": CRITERIA, "selection_rules": RULES_TEXT, "adaptation": ADAPTATION_DOC,
                 "components": ["perception", "attention", "memory", "workspace", "planning", "evaluation",
-                               "selection", "language", "feedback"]}
+                               "selection", "tool", "language", "feedback"]}
 
     def session_state(self, session_id: str) -> Dict[str, Any]:
         s = self.sessions.get(session_id)
@@ -156,13 +164,14 @@ class Orchestrator:
             return await self._notice_final(
                 ctx, sess, "Conversation context cleared. Persistent memories were not deleted.")
 
-        def model_view(component):
+        def model_view(component, **more):
             # Earlier workspace goals are not a substitute for conversational turns.
             # Avoid reintroducing old goals after /clear.
             return self.attention.view(component, obs, att, extra={
                 "request": obs.request,
                 "context": [],
                 "conversation_history": ctx.data["conversation_history"],
+                **more,
             })
 
         s = self.settings
@@ -251,6 +260,12 @@ class Orchestrator:
                                                               "rule": sel.rule}, 0.9)
         await self._workspace_event(ctx, sess)
 
+        # ---- 5b. tool execution (only for the explicitly selected web_fetch action)
+        tool_result: Optional[Dict[str, Any]] = None
+        if sel.kind == "web_fetch":
+            tool_result = await self._run_web_fetch(ctx, sess, sel)
+            ctx.data["tool_result"] = self._tool_brief(tool_result)
+
         # ---- 6. memory write (rule-based, opt-in, explicit only)
         mw = await self._maybe_store(ctx, sess, obs, sel)
         ctx.data["memory_write"] = mw
@@ -260,7 +275,8 @@ class Orchestrator:
         # ---- 7. language
         await self._activate(ctx, "language", "render selected action")
         self._current(ctx, sess)
-        lang = await self.language.render(ctx, obs, sel, model_view("language"), mw)
+        lang_view = model_view("language", tool_result=tool_result) if tool_result is not None else model_view("language")
+        lang = await self.language.render(ctx, obs, sel, lang_view, mw)
         self._current(ctx, sess)
         ev_l = await self._emit(ctx, "language", ET.LANGUAGE_DONE, {
             "method": lang.method, "post_checks": lang.post_checks, "notes": lang.notes,
@@ -269,7 +285,7 @@ class Orchestrator:
 
         final = {"text": lang.text, "action_kind": sel.kind, "proposal_id": sel.proposal_id,
                  "method": lang.method, "post_checks": lang.post_checks, "notes": lang.notes,
-                 "mock": self.adapter.is_mock}
+                 "mock": self.adapter.is_mock, "tool_result": ctx.data.get("tool_result")}
         return await self._publish_final(ctx, sess, final, obs.request)
 
     # ================================================================ helpers
@@ -310,6 +326,63 @@ class Orchestrator:
         persisted = await asyncio.to_thread(self.store.get_all_bias) if sess.memory_enabled else {}
         kinds = set(persisted) | set(sess.bias)
         return {k: self.adaptation.clamp(persisted.get(k, 0.0) + sess.bias.get(k, 0.0)) for k in kinds}
+
+    # ---------------------------------------------------------------- tool: web_fetch
+    async def _run_web_fetch(self, ctx: CycleContext, sess: Session, sel) -> Dict[str, Any]:
+        """Execute the selected web_fetch. Permission, allowlist and network policy live in the trusted
+        wrapper/CLI; this method only sequences, bounds and records. A stale or cancelled cycle never
+        launches the tool, and a tool crash degrades to a truthful error result, never an exception."""
+        url = str(sel.content_spec.get("url", ""))
+        self._current(ctx, sess)                      # a stale cycle must not launch tools
+        await self._activate(ctx, "tool", "execute selected web_fetch")
+        ev_t = await self._emit(ctx, "tool", ET.TOOL_STARTED, {
+            "tool": "web_fetch", "url": clip(url, 2048), "proposal_id": sel.proposal_id,
+            "note": "URL came from the user's /fetch command; allowlist and network policy are enforced by the CLI."})
+        ctx.parent_id = ev_t.event_id
+        try:
+            result = await self.web_tool.fetch(url)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - a tool bug must not crash the cycle
+            log.exception("web_fetch tool failed")
+            result = {"version": 1, "ok": False, "data": None,
+                      "error": {"code": "TOOL_ERROR", "message": f"web fetch tool failed ({type(e).__name__})"}}
+        self._current(ctx, sess)
+        result = self._bound_tool_result(result)
+        brief = self._tool_brief(result)
+        ev_d = await self._emit(ctx, "tool", ET.TOOL_DONE, brief)
+        ctx.parent_id = ev_d.event_id
+        self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
+        await self._workspace_event(ctx, sess)
+        return result
+
+    def _bound_tool_result(self, result: Any) -> Dict[str, Any]:
+        """Normalise to the wrapper's envelope and cap the page text that reaches the model."""
+        if not isinstance(result, dict) or "ok" not in result:
+            return {"version": 1, "ok": False, "data": None,
+                    "error": {"code": "TOOL_ERROR", "message": "web fetch tool returned an unexpected result"}}
+        if not result.get("ok") or not isinstance(result.get("data"), dict):
+            return {"version": result.get("version", 1), "ok": False, "data": None,
+                    "error": result.get("error") or {"code": "UNKNOWN", "message": "No page was retrieved."}}
+        page = dict(result["data"])
+        text = page.get("text") or ""
+        limit = self.settings.web_fetch_context_chars
+        page["context_truncated"] = len(text) > limit
+        page["text"] = text[:limit]
+        page["chars"] = len(text)
+        return {"version": result.get("version", 1), "ok": True, "data": page, "error": None}
+
+    @staticmethod
+    def _tool_brief(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Event/workspace-sized summary: never the full page text."""
+        if not result.get("ok"):
+            err = result.get("error") or {}
+            return {"tool": "web_fetch", "ok": False, "error": {"code": err.get("code"), "message": clip(err.get("message", ""), 300)}}
+        d = result["data"]
+        return {"tool": "web_fetch", "ok": True, "final_url": d.get("final_url"), "status": d.get("status"),
+                "content_type": d.get("content_type"), "title": clip(d.get("title") or "", 200) or None,
+                "chars": d.get("chars"), "truncated": bool(d.get("truncated")),
+                "context_truncated": bool(d.get("context_truncated")), "excerpt": clip(d.get("text", ""), 300)}
 
     async def _maybe_store(self, ctx: CycleContext, sess: Session, obs, sel) -> Dict[str, Any]:
         if sel.kind != "acknowledge_save":
@@ -372,7 +445,7 @@ class Orchestrator:
                 "final": final, "activated_components": ctx.components, "observation": d.get("observation"),
                 "memories_retrieved": d.get("memories", []), "memories_dropped": d.get("memories_dropped", []),
                 "proposals": d.get("proposals", []), "evaluations": d.get("evaluations", []),
-                "selected": d.get("selected"), "memory_write": d.get("memory_write"),
+                "selected": d.get("selected"), "tool_result": d.get("tool_result"), "memory_write": d.get("memory_write"),
                 "model": {"name": self.adapter.name, "is_mock": self.adapter.is_mock},
                 "model_calls_used": ctx.budget.used, "model_calls_limit": ctx.budget.limit,
                 "limits_hit": ctx.limits_hit, "events": ctx.events}

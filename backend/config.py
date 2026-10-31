@@ -53,6 +53,7 @@ class Settings:
     web_fetch_executable: str = field(default="", repr=False)
     web_fetch_wrapper: str = field(default="", repr=False)
     web_fetch_allowed_hosts: tuple[str, ...] = ()
+    web_fetch_context_chars: int = 6000    # page text handed to the language model (the CLI returns up to 64 KiB)
     # --- limits ---
     max_model_calls: int = 3               # per cycle, retries included
     cycle_timeout_s: float = 30.0
@@ -86,7 +87,8 @@ class Settings:
             raise ValueError("BRAIN_MODEL_URL must start with http:// or https://")
         for name in ("max_model_calls", "max_proposals", "workspace_max_items",
                      "max_retrieved_memories", "max_input_chars", "max_sessions",
-                     "max_events_per_cycle", "max_events_per_source_type", "max_memory_records"):
+                     "max_events_per_cycle", "max_events_per_source_type", "max_memory_records",
+                     "web_fetch_context_chars"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be >= 1")
         if self.max_retries < 0:
@@ -129,6 +131,7 @@ class Settings:
             web_fetch_executable=s("BRAIN_WEB_FETCH_EXECUTABLE", d.web_fetch_executable),
             web_fetch_wrapper=s("BRAIN_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),
             web_fetch_allowed_hosts=tuple(x.strip() for x in s("BRAIN_WEB_FETCH_ALLOWED_HOSTS", "").split(",") if x.strip()),
+            web_fetch_context_chars=i("BRAIN_WEB_FETCH_CONTEXT_CHARS", d.web_fetch_context_chars),
             mock_latency_s=f("BRAIN_MOCK_LATENCY_S", d.mock_latency_s),
             max_model_calls=i("BRAIN_MAX_MODEL_CALLS", d.max_model_calls),
             cycle_timeout_s=f("BRAIN_CYCLE_TIMEOUT_S", d.cycle_timeout_s),

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from .errors import StaleCycleError
 from .schemas import clip, jsonable, new_id, utcnow_iso
 
-KINDS = ("goal", "observation", "memory", "proposal", "evaluation", "selected_action")
+KINDS = ("goal", "observation", "memory", "proposal", "evaluation", "selected_action", "tool_result")
 
 
 @dataclass
