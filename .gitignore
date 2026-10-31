@@ -23,3 +23,6 @@ data/
 .vscode/
 .idea/
 .DS_Store
+
+# Rust
+target/
