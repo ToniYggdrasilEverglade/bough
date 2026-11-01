@@ -1,0 +1,11 @@
+{
+  "domain": "git",
+  "description": "Git and GitHub quick facts.",
+  "entries": [
+    {"id": "git-001", "text": "Git daily loop: `git status`, `git add -p` (review hunks), `git commit -m \"imperative summary\"`, `git pull --rebase`, `git push`. Commit messages say what changed and why, under 72 chars on the first line.", "tags": ["git", "commit", "push", "pull", "add", "status", "message", "workflow"]},
+    {"id": "git-002", "text": "Never commit secrets or generated files: .gitignore .env, venvs, target/, node_modules, __pycache__, *.sqlite3. If a key was committed, rotate it; history rewriting alone does not un-leak it.", "tags": ["git", "gitignore", "secret", "env", "leak", "rotate", "key", "commit"]},
+    {"id": "git-003", "text": "Undo: `git restore file` (discard edits), `git restore --staged file` (unstage), `git commit --amend` (fix last message), `git revert SHA` (safe undo of a pushed commit), `git reset --hard` only when you mean it.", "tags": ["git", "undo", "restore", "revert", "reset", "amend", "mistake"]},
+    {"id": "git-004", "text": "Branches: `git switch -c feature`, work, `git push -u origin feature`, open a pull request; `git switch main && git pull` before starting the next one. Resolve conflicts by editing the <<<< ==== >>>> markers then `git add`.", "tags": ["git", "branch", "switch", "pull", "request", "merge", "conflict", "github"]},
+    {"id": "git-005", "text": "GitHub CLI: `gh repo create name --private`, `gh pr create --fill`, `gh pr view --web`, `gh run list`; private repos stay private - double-check before `gh repo edit --visibility`.", "tags": ["github", "gh", "cli", "repo", "private", "pr", "pull", "request"]}
+  ]
+}

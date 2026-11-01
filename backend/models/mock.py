@@ -52,7 +52,7 @@ class MockModel(ModelAdapter):
     # ------------------------------------------------------------------
     def _plan(self, d: Dict[str, Any], mode: Optional[str]) -> Dict[str, Any]:
         request = d.get("request", "")
-        mems = d.get("memories", [])
+        mems = [m for m in d.get("memories", []) if m.get("origin") != "seed"]   # seeds are guidance, not the user's facts
         cons = [c["id"] for c in d.get("constraints", [])]
         props: List[Dict[str, Any]] = []
 

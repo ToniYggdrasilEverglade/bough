@@ -115,6 +115,7 @@ class Observation:
     save_text: Optional[str] = None     # only for explicit "remember ..." requests
     save_kind: Optional[str] = None     # fact | preference
     modality: str = "text"
+    domain: str = "general"             # code | writing | general (rule-based guess, drives scoring only)
 
     def to_dict(self) -> Dict[str, Any]:
         return jsonable(self)
@@ -174,7 +175,7 @@ class MemoryRecord:
     id: str
     kind: str          # fact | preference | summary
     text: str
-    origin: str        # user_stated | system_summary | model_interpretation
+    origin: str        # user_stated | system_summary | model_interpretation | seed
     created_at: str
     source_session: Optional[str] = None
     source_cycle: Optional[str] = None
@@ -183,6 +184,7 @@ class MemoryRecord:
         "user_stated": "user-provided",
         "system_summary": "system-generated summary (derived from the conversation)",
         "model_interpretation": "model-generated interpretation (unverified, not a fact)",
+        "seed": "built-in guidance shipped with the app (read-only, not about you)",
     }
 
     def to_dict(self) -> Dict[str, Any]:

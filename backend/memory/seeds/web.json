@@ -1,0 +1,12 @@
+{
+  "domain": "web",
+  "description": "HTML, CSS and HTTP quick facts.",
+  "entries": [
+    {"id": "web-001", "text": "HTML: semantic elements (header, nav, main, section, button, label+input), every input labelled, every image with alt, one h1 per page; <!doctype html> and lang on <html>.", "tags": ["html", "semantic", "accessibility", "label", "alt", "doctype", "markup"]},
+    {"id": "web-002", "text": "CSS layout: flexbox for one-dimensional rows/columns (display:flex; gap), grid for two-dimensional layouts; center with `display:grid; place-items:center` or flex + justify/align-content.", "tags": ["css", "flexbox", "grid", "layout", "center", "align", "responsive"]},
+    {"id": "web-003", "text": "CSS variables and theming: define --tokens on :root, switch with @media (prefers-color-scheme: dark); use rem for sizes and clamp() for fluid type.", "tags": ["css", "variable", "theme", "dark", "mode", "rem", "clamp", "design"]},
+    {"id": "web-004", "text": "HTTP status meaning: 200 ok, 201 created, 204 no content, 400 bad request, 401 not authenticated, 403 authenticated but forbidden, 404 not found, 409 conflict, 422 validation, 429 rate limited, 500 server error.", "tags": ["http", "status", "code", "401", "403", "404", "500", "api", "error"]},
+    {"id": "web-005", "text": "CORS: the browser blocks cross-origin fetches unless the server returns Access-Control-Allow-Origin for that origin; fix on the server, not in the browser. Same origin = same scheme, host and port.", "tags": ["cors", "origin", "browser", "fetch", "header", "api", "cross"]},
+    {"id": "web-006", "text": "Forms: prevent default on submit, validate on the client for UX but always on the server for safety; disable the submit button while a request is in flight and show the error text near the field.", "tags": ["form", "submit", "validate", "html", "javascript", "ux", "button"]}
+  ]
+}

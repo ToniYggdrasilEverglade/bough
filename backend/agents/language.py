@@ -70,7 +70,8 @@ class LanguageAgent:
         if use_model:
             data = dict(view, selected={"proposal_id": sel.proposal_id, "kind": sel.kind, "content_spec": spec})
             try:
-                out = await self.gateway.call(ctx, "verbalize", data, validate_verbalize)
+                out = await self.gateway.call(ctx, "verbalize", data,
+                                              lambda raw: validate_verbalize(raw, self.settings.max_reply_chars))
                 if out["action_kind"] != sel.kind or out["proposal_id"] != sel.proposal_id:
                     notes.append("model_changed_action_rejected")
                 else:
@@ -84,7 +85,7 @@ class LanguageAgent:
             res.notes = notes
         if sel.kind in ("answer", "answer_from_memory", "clarify", "web_fetch"):
             res.text, res.post_checks = apply_constraints(res.text, obs.constraints)
-        res.text = clip(res.text, 4000)
+        res.text = clip(res.text, self.settings.max_reply_chars)
         return res
 
     @staticmethod

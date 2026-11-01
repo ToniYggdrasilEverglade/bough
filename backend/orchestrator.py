@@ -29,7 +29,7 @@ from .agents.adaptation import ADAPTATION_DOC, Adaptation
 from .agents.attention import Attention
 from .agents.evaluation import CRITERIA, Evaluator
 from .agents.language import LanguageAgent
-from .agents.perception import Perception
+from .agents.perception import Perception, detect_domain
 from .agents.planning import Planner
 from .agents.selection import RULES_TEXT, Selector
 from .config import Settings
@@ -42,6 +42,7 @@ from .models.base import ModelAdapter
 from .models.gateway import ModelGateway
 from .schemas import Event, EventType, RawInput, clip, jsonable, new_id, utcnow_iso
 from .memory.base import Owner
+from .memory.seed import SeedStore
 from .sessions import Session, SessionManager
 from .web_tool import WebTool
 
@@ -64,6 +65,7 @@ class Orchestrator:
         self.language = LanguageAgent(settings, self.gateway)
         self.adaptation = Adaptation(settings)
         self.web_tool = WebTool(settings)
+        self.seeds = SeedStore(enabled=settings.seed_enabled)
 
     # ================================================================ public API
     def describe(self) -> Dict[str, Any]:
@@ -73,6 +75,7 @@ class Orchestrator:
                 "auth": {"mode": self.settings.auth_mode, "supabase_url": self.settings.supabase_url or None,
                          "publishable_key": self.settings.supabase_publishable_key or None},
                 "memory": {"backend": self.store.name},
+                "seeds": self.seeds.describe(),
                 "criteria": CRITERIA, "selection_rules": RULES_TEXT, "adaptation": ADAPTATION_DOC,
                 "components": ["perception", "attention", "memory", "workspace", "planning", "evaluation",
                                "selection", "tool", "language", "feedback"]}
@@ -199,16 +202,19 @@ class Orchestrator:
         await self._activate(ctx, "memory", "retrieve candidates" if sess.memory_enabled else "memory disabled")
 
         async def retrieve():
+            # Built-in seeds are not personal memory: they are consulted regardless of the memory toggle
+            # (attention gives them their own budget so they never displace the user's own records).
+            seed_rows = self.seeds.search(raw.data, s.max_seed_memories * 2, s.memory_min_score, detect_domain(raw.data))
             if not sess.memory_enabled:
-                return [], "memory_disabled"
+                return seed_rows, "memory_disabled"
             origins = ["user_stated", "system_summary"] + (["model_interpretation"] if s.include_model_interpretations else [])
             try:
                 rows = await asyncio.to_thread(self.store.search, sess.owner, raw.data, s.max_retrieved_memories * 3,
                                                s.memory_min_score, origins)
             except MemoryUnavailable as e:        # remote backend down: degrade to "no memories", say so
                 log.warning("memory retrieval unavailable: %s", e)
-                return [], f"memory_unavailable: {e}"
-            return rows, None
+                return seed_rows, f"memory_unavailable: {e}"
+            return rows + seed_rows, None
 
         async def perceive():
             return self.perception.perceive(raw)

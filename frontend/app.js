@@ -121,6 +121,8 @@ function onHello(msg) {
   $("#mock-banner").hidden = !mock;
   const chip = $("#model-chip"); chip.textContent = "model: " + msg.config.model.name; chip.className = "chip" + (mock ? " mock" : "");
   $("#calls-chip").textContent = "calls 0/" + msg.config.settings.max_model_calls;
+  const seeds = msg.config.seeds || {};
+  $("#seed-note").textContent = seeds.enabled ? `Built-in knowledge: ${seeds.count} read-only entries (${Object.keys(seeds.domains || {}).join(", ")}) are consulted alongside your memories.` : "Built-in knowledge seeds are disabled.";
   renderWorkspace(msg.state.workspace);
   loadMemories();
 }
@@ -138,8 +140,9 @@ function onEvent(ev) {
     case "component.activated": lightStage(p.component, rel + " ms"); break;
     case "perception.done": renderObservation(p); break;
     case "memory.retrieved":
-      S.retrieved = p.records; renderRetrieved(); lightStage("memory", p.skipped_reason ? "skipped" : p.records.length + " found");
-      if (p.skipped_reason) document.querySelector('#rail li[data-stage="memory"]').classList.add("skipped"); break;
+      S.retrieved = p.records; renderRetrieved();
+      lightStage("memory", p.records.length ? p.records.length + " found" + (p.skipped_reason ? " (seeds only)" : "") : (p.skipped_reason ? "skipped" : "0 found"));
+      if (p.skipped_reason && !p.records.length) document.querySelector('#rail li[data-stage="memory"]').classList.add("skipped"); break;
     case "attention.done": S.dropped = Object.fromEntries(p.dropped.map((d) => [d.id, d.reason])); renderRetrieved(); break;
     case "workspace.updated": renderWorkspace(p.items, p.size, p.max_items); break;
     case "model.call": $("#calls-chip").textContent = `calls ${p.calls_used}/${p.calls_limit}`; break;
@@ -216,7 +219,7 @@ function renderRetrieved() {
   box.replaceChildren(...S.retrieved.map((m) => {
     const why = S.dropped[m.id];
     return el("div", { class: "prop" }, el("div", { text: m.text }),
-      el("div", { class: "why" }, tag(m.origin), tag("score " + fmt(m.score)), tag(m.trust, m.origin === "model_interpretation" ? "warn" : ""),
+      el("div", { class: "why" }, tag(m.origin, m.origin === "seed" ? "seed" : ""), tag("score " + fmt(m.score)), tag(m.trust, m.origin === "model_interpretation" ? "warn" : ""),
         why ? tag("not used: " + why, "bad") : tag("sent to components", "ok")));
   }));
 }
@@ -260,10 +263,25 @@ function renderMemoryWrite(mw) {
 }
 
 // ------------------------------------------------------------------ chat
+// Split ```lang ... ``` fences into <pre><code> nodes. Everything stays textContent: no HTML is ever parsed.
+function renderRichText(text) {
+  const parts = [];
+  const fence = /```([\w+#-]*)[ \t]*\n([\s\S]*?)```/g;
+  let last = 0, m;
+  while ((m = fence.exec(text)) !== null) {
+    if (m.index > last) parts.push(el("span", { text: text.slice(last, m.index) }));
+    const code = el("code", { text: m[2].replace(/\n$/, "") });
+    if (m[1]) code.setAttribute("data-lang", m[1]);
+    parts.push(el("pre", { class: "code" }, code));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(el("span", { text: text.slice(last) }));
+  return el("div", { class: "body" }, ...parts);
+}
 function addMessage(role, text, extra) {
   const box = $("#messages");
   const first = box.querySelector(".empty"); if (first) first.remove();
-  const m = el("div", { class: "msg " + role }, el("div", { text }));
+  const m = el("div", { class: "msg " + role }, renderRichText(String(text)));
   if (extra) m.append(extra);
   box.append(m); box.scrollTop = box.scrollHeight;
   return m;

@@ -1,0 +1,14 @@
+{
+  "domain": "javascript",
+  "description": "JavaScript / TypeScript / browser conventions.",
+  "entries": [
+    {"id": "js-001", "text": "JavaScript: modern ES2020+. const by default, let when reassigning, never var. Arrow functions for callbacks, async/await over raw .then chains, template literals for strings.", "tags": ["javascript", "js", "es6", "const", "let", "arrow", "async", "modern"]},
+    {"id": "js-002", "text": "Browser DOM: build elements with document.createElement and set textContent; never innerHTML with user or model data (XSS). Attach handlers with addEventListener.", "tags": ["javascript", "dom", "browser", "innerhtml", "textcontent", "xss", "event", "listener", "html"]},
+    {"id": "js-003", "text": "fetch(): check `res.ok` before `res.json()`, pass an AbortController signal for timeouts, and send JSON with headers {\"Content-Type\":\"application/json\"} and JSON.stringify(body).", "tags": ["javascript", "fetch", "api", "http", "json", "request", "abort", "timeout"]},
+    {"id": "js-004", "text": "WebSocket in the browser: new WebSocket(url); handle onopen/onmessage/onclose/onerror; JSON.parse incoming frames inside try/catch; reconnect with backoff on close.", "tags": ["javascript", "websocket", "ws", "realtime", "socket", "reconnect"]},
+    {"id": "js-005", "text": "Node.js: ESM (`import`) with \"type\":\"module\" in package.json; `npm init -y`, `npm i <pkg>`, run with `node file.js`. Read secrets from process.env.", "tags": ["javascript", "node", "nodejs", "npm", "esm", "import", "package", "module"]},
+    {"id": "js-006", "text": "TypeScript: type function parameters and return values, prefer interfaces for object shapes, avoid `any` (use unknown + narrowing). Compile with `npx tsc` or run with `npx tsx file.ts`.", "tags": ["typescript", "ts", "type", "interface", "any", "unknown", "tsc"]},
+    {"id": "js-007", "text": "JS equality and nulls: use === and !==, optional chaining a?.b, nullish coalescing a ?? default. Arrays: map/filter/reduce/find/some; copy with [...arr] or structuredClone.", "tags": ["javascript", "equality", "null", "undefined", "optional", "chaining", "array", "map", "filter"]},
+    {"id": "js-008", "text": "Browser games/interfaces: drive animation with requestAnimationFrame, keep state in one object, separate update(dt) from render(), and use canvas for many moving objects.", "tags": ["javascript", "game", "canvas", "animation", "requestanimationframe", "render", "loop", "interactive"]}
+  ]
+}

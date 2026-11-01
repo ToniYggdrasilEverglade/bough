@@ -1,0 +1,148 @@
+{
+  "domain": "english",
+  "description": "English writing, grammar and editing conventions.",
+  "entries": [
+    {
+      "id": "en-001",
+      "text": "Clear English: one idea per sentence, active voice ('the script reads the file' not 'the file is read by the script'), concrete nouns, verbs that carry the meaning.",
+      "tags": [
+        "english",
+        "writing",
+        "clear",
+        "sentence",
+        "active",
+        "voice",
+        "grammar",
+        "style"
+      ],
+      "pin": "writing"
+    },
+    {
+      "id": "en-002",
+      "text": "Cut padding: 'in order to' → 'to', 'due to the fact that' → 'because', 'at this point in time' → 'now', 'utilise' → 'use'. Delete 'very', 'really', 'basically', 'just'.",
+      "tags": [
+        "english",
+        "concise",
+        "edit",
+        "wordy",
+        "padding",
+        "filler",
+        "shorten",
+        "writing"
+      ]
+    },
+    {
+      "id": "en-003",
+      "text": "Common confusions: its (possessive) / it's (it is); their / there / they're; affect (verb) / effect (noun); fewer (countable) / less (mass); who (subject) / whom (object); lose / loose.",
+      "tags": [
+        "english",
+        "grammar",
+        "spelling",
+        "its",
+        "their",
+        "affect",
+        "effect",
+        "fewer",
+        "less",
+        "confusion"
+      ]
+    },
+    {
+      "id": "en-004",
+      "text": "Punctuation: comma before a coordinating conjunction joining two full sentences; semicolon joins two related sentences without a conjunction; colon introduces a list or explanation; em dash for an aside.",
+      "tags": [
+        "english",
+        "punctuation",
+        "comma",
+        "semicolon",
+        "colon",
+        "dash",
+        "grammar"
+      ]
+    },
+    {
+      "id": "en-005",
+      "text": "Paragraphs: lead with the point, then support it; 3-5 sentences; one topic each. Readers skim first sentences, so make them carry the argument.",
+      "tags": [
+        "english",
+        "paragraph",
+        "structure",
+        "essay",
+        "topic",
+        "sentence",
+        "writing"
+      ]
+    },
+    {
+      "id": "en-006",
+      "text": "Emails: subject states the ask or outcome; first line says what you need and by when; details below; sign off plainly. Formal register = no contractions, full sentences, no slang.",
+      "tags": [
+        "english",
+        "email",
+        "formal",
+        "letter",
+        "subject",
+        "writing",
+        "professional",
+        "tone"
+      ]
+    },
+    {
+      "id": "en-007",
+      "text": "Fiction: show state through action and dialogue rather than labelling emotions; keep point of view consistent within a scene; vary sentence length for pace; cut adverbs on dialogue tags ('said' is enough).",
+      "tags": [
+        "english",
+        "fiction",
+        "story",
+        "writing",
+        "character",
+        "dialogue",
+        "scene",
+        "pov",
+        "narrative"
+      ]
+    },
+    {
+      "id": "en-008",
+      "text": "When asked to rewrite or proofread: return the corrected text first, then a short list of the changes and why. Keep the author's voice; do not rewrite meaning.",
+      "tags": [
+        "english",
+        "rewrite",
+        "proofread",
+        "edit",
+        "correct",
+        "revise",
+        "grammar",
+        "text"
+      ]
+    },
+    {
+      "id": "en-009",
+      "text": "Definitions: give the meaning in one plain sentence, one example sentence, and the part of speech; note register (formal/informal/technical) when it matters.",
+      "tags": [
+        "english",
+        "define",
+        "definition",
+        "meaning",
+        "word",
+        "vocabulary",
+        "synonym",
+        "example"
+      ]
+    },
+    {
+      "id": "en-010",
+      "text": "Technical writing: define a term the first time you use it, then use that exact term consistently; prefer numbered steps for procedures and tables for comparisons.",
+      "tags": [
+        "english",
+        "technical",
+        "writing",
+        "documentation",
+        "readme",
+        "term",
+        "consistent",
+        "steps"
+      ]
+    }
+  ]
+}

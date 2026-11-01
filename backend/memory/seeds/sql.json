@@ -1,0 +1,12 @@
+{
+  "domain": "sql",
+  "description": "SQL, SQLite, Postgres and Supabase quick facts.",
+  "entries": [
+    {"id": "sql-001", "text": "SQL basics: SELECT cols FROM t WHERE cond ORDER BY col LIMIT n; JOIN on keys; GROUP BY with aggregates (COUNT, SUM, AVG); use explicit column lists, not SELECT *, in application code.", "tags": ["sql", "select", "join", "group", "query", "database", "where", "order"]},
+    {"id": "sql-002", "text": "Always parameterise SQL: Python sqlite3 uses ?, psycopg uses %s, never f-strings with user input. Wrap multi-statement changes in a transaction.", "tags": ["sql", "parameter", "injection", "sqlite3", "psycopg", "transaction", "security", "python"]},
+    {"id": "sql-003", "text": "SQLite: single file DB, `sqlite3 file.db` CLI, `.tables` and `.schema`; enable `PRAGMA foreign_keys=ON` and `PRAGMA journal_mode=WAL` for concurrent readers.", "tags": ["sqlite", "sql", "pragma", "wal", "schema", "file", "database"]},
+    {"id": "sql-004", "text": "Postgres: `psql`, `\\dt` to list tables, `\\d table` for columns; use uuid or bigint identity keys, timestamptz for times, jsonb for semi-structured data, and indexes on columns you filter by.", "tags": ["postgres", "postgresql", "psql", "index", "uuid", "jsonb", "timestamptz", "sql"]},
+    {"id": "sql-005", "text": "Supabase: enable Row Level Security on every table and write policies against auth.uid(); use the publishable key in clients and never ship the service role key; SQL changes go in supabase/migrations.", "tags": ["supabase", "rls", "policy", "auth", "uid", "migration", "postgres", "key"]},
+    {"id": "sql-006", "text": "Schema changes: add migrations, never edit tables by hand in production; make them reversible where possible and idempotent (CREATE TABLE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS).", "tags": ["sql", "migration", "schema", "alter", "table", "idempotent", "database"]}
+  ]
+}

@@ -75,7 +75,7 @@ class Planner:
                 props.append(_rule("notice", "Tell the user the language model could not be used",
                                    [], "User understands the limitation",
                                    {"code": "model_unavailable", "reason": f.code}, obs))
-            mems = view.get("memories", [])
+            mems = [m for m in view.get("memories", []) if m.get("origin") != "seed"]   # seeds are guidance, not answers
             if mems and not obs.underspecified:
                 top = mems[:2]
                 props.append(_rule("answer_from_memory", "Offer relevant saved memories without model help",

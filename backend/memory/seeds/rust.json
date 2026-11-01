@@ -1,0 +1,14 @@
+{
+  "domain": "rust",
+  "description": "Rust conventions and quick facts.",
+  "entries": [
+    {"id": "rs-001", "text": "Rust: start with `cargo new name`, code in src/main.rs, dependencies in Cargo.toml, build with `cargo build --release`, run with `cargo run -- args`. Use `cargo clippy` and `cargo fmt`.", "tags": ["rust", "cargo", "build", "run", "clippy", "fmt", "project", "toml"]},
+    {"id": "rs-002", "text": "Rust errors: return Result<T, E>, propagate with `?`, use anyhow for applications and thiserror for libraries. Avoid unwrap()/expect() outside tests and truly impossible cases.", "tags": ["rust", "result", "error", "question", "mark", "anyhow", "thiserror", "unwrap", "expect"]},
+    {"id": "rs-003", "text": "Rust ownership: pass &T to read, &mut T to modify, T to transfer. Clone only when you need a second owner. Use String for owned text, &str for borrowed.", "tags": ["rust", "ownership", "borrow", "reference", "clone", "string", "str", "lifetime", "move"]},
+    {"id": "rs-004", "text": "Rust data: struct + impl for types, enum with data for variants and match exhaustively; derive Debug, Clone, PartialEq as needed; Option<T> instead of null.", "tags": ["rust", "struct", "enum", "match", "option", "derive", "impl", "trait"]},
+    {"id": "rs-005", "text": "Rust collections and iterators: Vec, HashMap, HashSet; chain .iter().filter().map().collect::<Vec<_>>(); use .iter() to borrow, .into_iter() to consume.", "tags": ["rust", "vec", "hashmap", "iterator", "collect", "map", "filter", "iter"]},
+    {"id": "rs-006", "text": "Rust CLI: clap with derive (`#[derive(Parser)]`), serde + serde_json for JSON, reqwest (blocking or tokio) for HTTP, std::process::exit(1) on failure with a message on stderr.", "tags": ["rust", "cli", "clap", "serde", "json", "reqwest", "http", "tokio", "stderr"]},
+    {"id": "rs-007", "text": "Rust async: tokio runtime with `#[tokio::main]`, `async fn`, `.await`; use tokio::spawn for tasks and tokio::time::timeout to bound I/O.", "tags": ["rust", "async", "tokio", "await", "spawn", "timeout", "runtime"]},
+    {"id": "rs-008", "text": "Rust tests: `#[cfg(test)] mod tests { #[test] fn name() { assert_eq!(..) } }` in the same file, run with `cargo test`. Integration tests live in tests/.", "tags": ["rust", "test", "cargo", "assert_eq", "cfg", "integration"]}
+  ]
+}

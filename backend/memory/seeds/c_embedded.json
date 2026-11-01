@@ -1,0 +1,12 @@
+{
+  "domain": "c_embedded",
+  "description": "C/C++ and Arduino/embedded quick facts.",
+  "entries": [
+    {"id": "c-001", "text": "Arduino sketch: setup() runs once (pinMode, Serial.begin(115200)), loop() runs forever; avoid delay() in anything with more than one task - use millis() timing instead.", "tags": ["arduino", "sketch", "setup", "loop", "millis", "delay", "serial", "embedded"]},
+    {"id": "c-002", "text": "Arduino I/O: digitalWrite/digitalRead for pins, analogRead (0-1023) for sensors, analogWrite (0-255 PWM) for brightness/speed; use INPUT_PULLUP for buttons and debounce them.", "tags": ["arduino", "digitalwrite", "analogread", "pwm", "button", "debounce", "sensor", "pin", "led"]},
+    {"id": "c-003", "text": "Embedded memory is tiny: prefer fixed-size buffers and uint8_t/uint16_t, avoid String objects and dynamic allocation on 8-bit boards, store constant text with F(\"...\") / PROGMEM.", "tags": ["arduino", "embedded", "memory", "ram", "progmem", "uint8_t", "buffer", "allocation"]},
+    {"id": "c-004", "text": "C: every malloc needs a free, every array index needs a bounds check, every string needs a terminator; compile with `gcc -Wall -Wextra -g file.c -o prog` and run under valgrind or ASan for memory errors.", "tags": ["c", "malloc", "free", "pointer", "buffer", "gcc", "valgrind", "memory", "segfault"]},
+    {"id": "c-005", "text": "C++: prefer std::vector/std::string/std::array over raw arrays, RAII and smart pointers (unique_ptr) over new/delete, and `auto` + range-for loops; build with `g++ -std=c++20 -Wall`.", "tags": ["c++", "cpp", "vector", "string", "unique_ptr", "raii", "g++", "modern"]},
+    {"id": "c-006", "text": "Serial debugging on microcontrollers: print state changes, not every loop iteration; match the baud rate in the monitor; a device that resets repeatedly usually has a power or stack overflow problem.", "tags": ["arduino", "serial", "debug", "baud", "reset", "power", "embedded", "monitor"]}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "domain": "shell_linux",
+  "description": "Bash, Linux, Kali and systemd quick facts.",
+  "entries": [
+    {"id": "sh-001", "text": "Bash scripts: start with `#!/usr/bin/env bash` and `set -euo pipefail`; quote every variable \"$var\"; use $(cmd) not backticks; check with shellcheck.", "tags": ["bash", "shell", "script", "set", "pipefail", "quote", "shellcheck", "sh"]},
+    {"id": "sh-002", "text": "Linux permissions: chmod +x script.sh to run it; ls -l shows rwx for owner/group/other; sudo only for the single command that needs it, never for pip or npm.", "tags": ["linux", "chmod", "permission", "sudo", "executable", "ls", "root"]},
+    {"id": "sh-003", "text": "Find things: `grep -rn pattern dir`, `find dir -name '*.py'`, `rg pattern` if ripgrep is installed, `which cmd` / `command -v cmd` to locate a binary.", "tags": ["linux", "grep", "find", "search", "ripgrep", "which", "locate", "file"]},
+    {"id": "sh-004", "text": "Processes and ports: `ps aux | grep name`, `kill -9 PID` as last resort, `ss -tulpn` or `lsof -i :8000` to see what holds a port, `nohup cmd &` or tmux to keep something running.", "tags": ["linux", "process", "port", "kill", "ps", "lsof", "ss", "tmux", "nohup", "background"]},
+    {"id": "sh-005", "text": "systemd service: unit file in /etc/systemd/system/name.service with [Service] ExecStart=, WorkingDirectory=, EnvironmentFile=, Restart=on-failure; then `systemctl daemon-reload && systemctl enable --now name` and `journalctl -u name -f`.", "tags": ["linux", "systemd", "service", "systemctl", "journalctl", "daemon", "startup", "deploy"]},
+    {"id": "sh-006", "text": "Kali/Debian packages: `sudo apt update && sudo apt install pkg`; Python packages go in a venv (PEP 668 blocks system pip). `apt search name` to find packages.", "tags": ["kali", "debian", "apt", "install", "package", "linux", "pip", "pep668"]},
+    {"id": "sh-007", "text": "Pipes and text: `cmd | sort | uniq -c | sort -rn` for counts, `awk '{print $2}'` for columns, `sed -i 's/old/new/g' file` for in-place replace, `cut -d, -f1` for CSV fields.", "tags": ["bash", "pipe", "awk", "sed", "sort", "uniq", "cut", "text", "csv"]},
+    {"id": "sh-008", "text": "Networking checks: `ip a` for addresses, `ping host`, `curl -v https://host/path` to see headers/TLS, `curl -s url | jq .` for JSON APIs, `dig host` for DNS.", "tags": ["linux", "network", "curl", "ping", "dns", "dig", "ip", "jq", "tls", "http"]},
+    {"id": "sh-009", "text": "SSH: `ssh user@host`, keys with `ssh-keygen -t ed25519` then `ssh-copy-id user@host`; `scp file user@host:path` to copy; `ssh -L 8000:localhost:8000 user@host` to tunnel a port.", "tags": ["ssh", "linux", "key", "scp", "tunnel", "remote", "server"]},
+    {"id": "sh-010", "text": "Environment variables: `export VAR=value` for the session, put them in ~/.bashrc or ~/.zshrc to persist, `env | grep VAR` to check; apps read them with os.environ / std::env / process.env.", "tags": ["linux", "env", "environment", "variable", "export", "bashrc", "zshrc", "dotenv"]}
+  ]
+}

@@ -51,15 +51,22 @@ class Evaluator:
         # Independent of the review call, so both run concurrently.
         evals = [self._score(p, obs, retrieved_ids) for p in proposals]
         reviews = await review_task if review_task else {}
+        actionable = obs.domain == "code" or obs.intent == "request"
         for ev in evals:
             rv = reviews.get(ev.proposal_id)
             if rv is None:
                 continue
             ev.model_review = {**rv, "same_model_review": True, "independent_verification": False}
             if "unsupported_claim" in rv["flags"]:
-                ev.scores["support"] = _r(ev.scores["support"] - REVIEW_SUPPORT_PENALTY)
-                ev.flags.append("reviewer_flagged_unsupported_claim")
-                self._total(ev)
+                if actionable and ev.kind == "answer":
+                    # Code / how-to requests are answered from model knowledge by definition; the same model
+                    # flagging that as "unsupported" is tautological and would only push the pipeline toward
+                    # clarifying questions. Keep the flag visible, skip the penalty.
+                    ev.flags.append("reviewer_flagged_unsupported_claim_ignored_for_actionable_request")
+                else:
+                    ev.scores["support"] = _r(ev.scores["support"] - REVIEW_SUPPORT_PENALTY)
+                    ev.flags.append("reviewer_flagged_unsupported_claim")
+                    self._total(ev)
         return evals
 
     async def _review(self, ctx: CycleContext, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -85,7 +92,10 @@ class Evaluator:
         elif p.kind == "notice":
             rel = 1.0 if obs.intent == "save_memory" else 0.5
         elif p.kind == "clarify":
-            rel = 1.0 if obs.underspecified else 0.45
+            # A clarifying question when nothing essential is missing does not advance the conversation.
+            rel = 1.0 if obs.underspecified else 0.2
+            if not obs.underspecified:
+                flags.append("clarify_without_missing_information")
         elif obs.underspecified:
             rel = 0.3
         else:
@@ -103,12 +113,21 @@ class Evaluator:
                 sup = 0.0
                 flags.append("memory_answer_without_citations")
             else:
-                valid = [m for m in p.supported_by if m in retrieved_ids]
+                # Built-in seeds are guidance, not the user's own facts: they cannot back "from your memory".
+                valid = [m for m in p.supported_by if m in retrieved_ids and not m.startswith("seed:")]
                 sup = len(valid) / len(p.supported_by)
+                if any(m.startswith("seed:") for m in p.supported_by):
+                    flags.append("memory_answer_cites_seed_guidance")
                 if len(valid) < len(p.supported_by):
                     flags.append("unsupported_memory_citation")
         else:  # plain answer
-            sup = 0.25 if mock else (0.5 if retrieved_ids else 0.35)
+            cited = [m for m in p.supported_by if m in retrieved_ids]
+            if mock:
+                sup = 0.25
+            elif cited and len(cited) == len(p.supported_by):
+                sup = 0.6            # grounded in retrieved memories / built-in seeds it actually cites
+            else:
+                sup = 0.5 if retrieved_ids else 0.35
             flags.append("mock_model_no_real_reasoning" if mock else "relies_on_unverified_model_knowledge")
 
         # constraints

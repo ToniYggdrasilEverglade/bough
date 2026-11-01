@@ -8,7 +8,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..errors import ModelOutputError, ModelTimeout, ModelUnavailable
 from .base import ModelAdapter
@@ -17,10 +17,11 @@ from .prompts import build_messages
 
 MAX_RESPONSE_BYTES = 1_000_000
 # Per-task output budgets; keep planning separate from answer generation.
+# Defaults only; Settings overrides these (BRAIN_MODEL_PLAN_TOKENS / _REVIEW_TOKENS / _REPLY_TOKENS).
 TASK_COMPLETION_TOKENS = {
-    "plan": 256,
-    "review": 256,
-    "verbalize": 256,
+    "plan": 1500,
+    "review": 600,
+    "verbalize": 6000,
 }
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I)
 
@@ -56,11 +57,13 @@ class HttpChatModel(ModelAdapter):
         model: str,
         api_key: str = "",
         json_mode: bool = True,
+        completion_tokens: Optional[Dict[str, int]] = None,
     ):
         self.url = url
         self.model = model
         self._api_key = api_key
         self.json_mode = json_mode
+        self.completion_tokens = dict(TASK_COMPLETION_TOKENS, **(completion_tokens or {}))
         self.name = f"http:{model}"
 
     async def run(
@@ -107,7 +110,7 @@ class HttpChatModel(ModelAdapter):
             "messages": messages,
             "temperature": 0,
             "stream": False,
-            "max_completion_tokens": TASK_COMPLETION_TOKENS.get(task, 256),
+            "max_completion_tokens": self.completion_tokens.get(task, 1024),
         }
 
         if self.json_mode:

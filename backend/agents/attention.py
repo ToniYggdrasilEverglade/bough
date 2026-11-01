@@ -35,19 +35,28 @@ class Attention:
         s = self.settings
         res = AttentionResult(budgets={"memories": s.max_retrieved_memories, "context": CONTEXT_BUDGET,
                                        "proposals": s.max_proposals})
+        res.budgets["seeds"] = s.max_seed_memories
         seen_text = set()
+        kept_user = kept_seed = 0
         for m in sorted(retrieved, key=lambda m: -m.get("score", 0)):
             norm = " ".join(m["text"].lower().split())
+            is_seed = m.get("origin") == "seed"
             if obs.intent == "save_memory":
                 res.dropped.append({"id": m["id"], "reason": "not_needed_for_save_request"})
             elif m.get("score", 0) < s.memory_min_score:
                 res.dropped.append({"id": m["id"], "reason": "below_relevance_threshold"})
             elif norm in seen_text:
                 res.dropped.append({"id": m["id"], "reason": "duplicate"})
-            elif len(res.memories) >= s.max_retrieved_memories:
+            elif is_seed and kept_seed >= s.max_seed_memories:
+                res.dropped.append({"id": m["id"], "reason": "over_seed_budget"})
+            elif not is_seed and kept_user >= s.max_retrieved_memories:
                 res.dropped.append({"id": m["id"], "reason": "over_memory_budget"})
             else:
                 seen_text.add(norm)
+                if is_seed:
+                    kept_seed += 1
+                else:
+                    kept_user += 1
                 res.memories.append(m)
         # Context from earlier cycles: previous goals / selected actions that overlap the new request.
         req = token_set(obs.request)
@@ -65,7 +74,7 @@ class Attention:
 
     def view(self, component: str, obs: Observation, att: AttentionResult, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
         base: Dict[str, Any] = {
-            "request": obs.request, "intent": obs.intent,
+            "request": obs.request, "intent": obs.intent, "domain": obs.domain,
             "constraints": jsonable(obs.constraints)}
         mems = [{"id": m["id"], "text": clip(m["text"], MEM_CHARS), "kind": m["kind"], "origin": m["origin"],
                  "trust": m.get("trust"), "score": m.get("score")} for m in att.memories]
@@ -74,9 +83,11 @@ class Attention:
                          "missing": obs.missing, "memories": mems, "context": att.context,
                          "limits": {"max_proposals": self.settings.max_proposals}})
         elif component == "evaluation":
-            base.update({"memories": mems[:self.settings.max_retrieved_memories]})
+            base.update({"memories": mems})
         elif component == "language":
-            base.update({"memories": mems[:LANGUAGE_MEMORY_BUDGET]})
+            own = [m for m in mems if m["origin"] != "seed"][:LANGUAGE_MEMORY_BUDGET]
+            seeds = [m for m in mems if m["origin"] == "seed"][:LANGUAGE_MEMORY_BUDGET]
+            base.update({"memories": own + seeds})
         if extra:
             base.update(extra)
         return base

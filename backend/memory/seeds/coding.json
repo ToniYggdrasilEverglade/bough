@@ -1,0 +1,228 @@
+{
+  "domain": "coding",
+  "description": "Language-independent conventions for any code request.",
+  "entries": [
+    {
+      "id": "code-001",
+      "text": "Code requests get complete, runnable code: all imports, the full implementation, an entry point, and one line on how to run it. Never placeholders, '...', or 'rest of the code here'.",
+      "tags": [
+        "code",
+        "complete",
+        "runnable",
+        "placeholder",
+        "implement",
+        "write",
+        "program",
+        "script"
+      ],
+      "pin": "code"
+    },
+    {
+      "id": "code-002",
+      "text": "Put code in a fenced block tagged with the language (```python, ```rust, ```bash, ```js). One block per file; name the file above the block when there is more than one.",
+      "tags": [
+        "code",
+        "fenced",
+        "block",
+        "markdown",
+        "file",
+        "format"
+      ]
+    },
+    {
+      "id": "code-003",
+      "text": "Pick the language the user named or is already using. If none is evident, use Python for scripts and tooling, JavaScript for browser behaviour, Rust for CLIs/performance, and say which you chose.",
+      "tags": [
+        "language",
+        "choose",
+        "python",
+        "javascript",
+        "rust",
+        "default"
+      ]
+    },
+    {
+      "id": "code-004",
+      "text": "Prefer the standard library. Add a third-party dependency only when it saves real work, and name the install command (pip install x, cargo add x, npm i x).",
+      "tags": [
+        "dependency",
+        "library",
+        "install",
+        "pip",
+        "cargo",
+        "npm",
+        "stdlib"
+      ]
+    },
+    {
+      "id": "code-005",
+      "text": "Handle the obvious failure paths: missing file, bad input, network error, empty list. Fail with a clear message, not a bare stack trace.",
+      "tags": [
+        "error",
+        "handling",
+        "exception",
+        "failure",
+        "robust",
+        "validate"
+      ]
+    },
+    {
+      "id": "code-006",
+      "text": "Name things for what they are: verbs for functions (load_config, parse_args), nouns for data (user_count, retry_limit). No single-letter names outside tiny loops and math.",
+      "tags": [
+        "naming",
+        "variable",
+        "function",
+        "readable",
+        "convention"
+      ]
+    },
+    {
+      "id": "code-007",
+      "text": "Keep functions small and single-purpose. If a function needs a comment to separate its sections, split it.",
+      "tags": [
+        "function",
+        "small",
+        "refactor",
+        "single",
+        "responsibility",
+        "clean"
+      ]
+    },
+    {
+      "id": "code-008",
+      "text": "Comment the why, not the what. Code shows what happens; comments explain intent, trade-offs and non-obvious constraints.",
+      "tags": [
+        "comment",
+        "documentation",
+        "docstring",
+        "why",
+        "intent"
+      ]
+    },
+    {
+      "id": "code-009",
+      "text": "When fixing a bug: show the fixed code, state the root cause in one sentence, and mention how to confirm the fix (a test, a command, expected output).",
+      "tags": [
+        "bug",
+        "fix",
+        "debug",
+        "root",
+        "cause",
+        "error",
+        "broken"
+      ]
+    },
+    {
+      "id": "code-010",
+      "text": "When asked to explain code: walk through it top to bottom in execution order, naming what each block does and why, then summarise the data flow in two sentences.",
+      "tags": [
+        "explain",
+        "walkthrough",
+        "understand",
+        "read",
+        "code"
+      ]
+    },
+    {
+      "id": "code-011",
+      "text": "Never hard-code secrets. Read API keys, passwords and tokens from environment variables or a gitignored .env file, and show the variable name in the code.",
+      "tags": [
+        "secret",
+        "api",
+        "key",
+        "password",
+        "token",
+        "env",
+        "security",
+        "dotenv"
+      ]
+    },
+    {
+      "id": "code-012",
+      "text": "Treat all external input as untrusted: validate types and ranges, parameterise SQL, escape HTML, never pass user strings to a shell.",
+      "tags": [
+        "security",
+        "input",
+        "validate",
+        "injection",
+        "sql",
+        "shell",
+        "xss",
+        "untrusted"
+      ]
+    },
+    {
+      "id": "code-013",
+      "text": "Make scripts idempotent where practical: re-running should not duplicate rows, re-download files already present, or corrupt partial state.",
+      "tags": [
+        "idempotent",
+        "script",
+        "rerun",
+        "safe",
+        "automation"
+      ]
+    },
+    {
+      "id": "code-014",
+      "text": "Show expected output or a usage example after the code so the user can tell at a glance whether it worked.",
+      "tags": [
+        "example",
+        "usage",
+        "output",
+        "demo",
+        "run"
+      ]
+    },
+    {
+      "id": "code-015",
+      "text": "For performance questions: measure first. Give the Big-O of the current and proposed approach and the single change with the biggest payoff, not a list of micro-optimisations.",
+      "tags": [
+        "performance",
+        "optimize",
+        "speed",
+        "slow",
+        "complexity",
+        "big-o",
+        "fast"
+      ]
+    },
+    {
+      "id": "code-016",
+      "text": "Tests: one behaviour per test, descriptive names (test_rejects_empty_input), arrange-act-assert, no network or clock dependence unless the test is about that.",
+      "tags": [
+        "test",
+        "unit",
+        "pytest",
+        "assert",
+        "testing",
+        "tdd"
+      ]
+    },
+    {
+      "id": "code-017",
+      "text": "Concurrency: prefer async/await for I/O-bound work, threads or processes for CPU-bound work, and share state through queues or messages instead of locks where possible.",
+      "tags": [
+        "async",
+        "await",
+        "thread",
+        "concurrency",
+        "parallel",
+        "process",
+        "lock",
+        "race"
+      ]
+    },
+    {
+      "id": "code-018",
+      "text": "Logging over print in anything beyond a one-off script: use the language's logging facility with levels, and never log secrets or full tokens.",
+      "tags": [
+        "logging",
+        "log",
+        "print",
+        "debug",
+        "level"
+      ]
+    }
+  ]
+}

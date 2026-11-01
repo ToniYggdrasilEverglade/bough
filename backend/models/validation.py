@@ -97,9 +97,9 @@ def validate_review(raw: Any) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def validate_verbalize(raw: Any) -> Dict[str, str]:
+def validate_verbalize(raw: Any, max_text: int = 16000) -> Dict[str, str]:
     if not isinstance(raw, dict):
         raise ModelOutputError("verbalize output must be an object")
     return {"proposal_id": _text(raw.get("proposal_id"), "proposal_id", 64),
             "action_kind": _text(raw.get("action_kind"), "action_kind", 40),
-            "text": _text(raw.get("text"), "text", 4000)}
+            "text": _text(raw.get("text"), "text", max_text)}

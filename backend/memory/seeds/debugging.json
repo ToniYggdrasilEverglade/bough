@@ -1,0 +1,13 @@
+{
+  "domain": "debugging",
+  "description": "How to diagnose errors systematically.",
+  "entries": [
+    {"id": "dbg-001", "text": "Read the error bottom-up: the last line of a Python traceback or the first `error[E...]` of a Rust build names the real problem; the frames above show where. Quote that line back and fix that first.", "tags": ["debug", "error", "traceback", "stack", "trace", "exception", "message", "fix"]},
+    {"id": "dbg-002", "text": "ModuleNotFoundError / cannot find crate / module not found: the dependency is not installed in the environment you are running. Check `which python`/`node -v`, activate the venv, reinstall from requirements/Cargo.toml/package.json.", "tags": ["debug", "modulenotfounderror", "import", "module", "not", "found", "install", "venv", "dependency"]},
+    {"id": "dbg-003", "text": "Reproduce before fixing: find the smallest input and command that triggers the bug, confirm it fails every time, then change one thing at a time and re-run.", "tags": ["debug", "reproduce", "minimal", "bisect", "test", "bug", "method"]},
+    {"id": "dbg-004", "text": "Connection refused = nothing is listening on that host:port (service not started or wrong port). Timeout = host unreachable or firewall. 401/403 = auth or permissions, not networking.", "tags": ["debug", "connection", "refused", "timeout", "port", "network", "firewall", "401", "403"]},
+    {"id": "dbg-005", "text": "Browser shows stale code: hard refresh (Ctrl+Shift+R), check the Network tab for the file actually served and its response, and look at the Console for the first red error.", "tags": ["debug", "browser", "cache", "refresh", "stale", "console", "network", "devtools", "frontend"]},
+    {"id": "dbg-006", "text": "Works on one machine, not another: compare versions (python --version, node -v, rustc -V), environment variables, file paths (absolute vs relative, ~ expansion), and line endings/permissions.", "tags": ["debug", "environment", "version", "path", "works", "machine", "difference", "config"]},
+    {"id": "dbg-007", "text": "Print/log the actual values at the failing point (type and repr, not just the value) before theorising; most bugs are a wrong assumption about data shape, None/null, or an off-by-one.", "tags": ["debug", "print", "log", "value", "none", "null", "off-by-one", "assumption", "type"]}
+  ]
+}

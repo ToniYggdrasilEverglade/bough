@@ -36,6 +36,25 @@ _BULLETS = re.compile(r"\b(?:in|as|using|with)\s+bullet(?:s| points?)\b", re.I)
 _FORMAL = re.compile(r"\b(formal(?:ly)?|formal tone)\b", re.I)
 _QUOTED = re.compile(r"[\"“]([^\"”]{1,60})[\"”]")
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+_CODE = re.compile(
+    r"\b(code|coding|program|script|function|def|class|method|variable|loop|array|list comprehension|regex|"
+    r"compile|compiler|debug|bug|error|exception|traceback|stack ?trace|segfault|refactor|unit ?test|"
+    r"python|javascript|typescript|rust|cargo|golang|java|kotlin|swift|c\+\+|c#|arduino|bash|shell|zsh|"
+    r"sql|postgres|sqlite|html|css|json|yaml|api|http|fastapi|flask|django|react|node(?:js)?|npm|pip|"
+    r"git|github|docker|linux|kali|systemd|makefile|algorithm|recursion|pointer|struct|enum|async|thread)\b"
+    r"|```|\b\w+\(\)|\b\w+\.\w+\(|[{};]\s*$", re.I | re.M)
+_WRITING = re.compile(
+    r"\b(essay|paragraph|story|poem|email|letter|cover letter|resume|grammar|spelling|proofread|rewrite|"
+    r"rephrase|tone|synonym|antonym|define|definition|meaning of|what does .* mean|translate|wording)\b", re.I)
+
+
+def detect_domain(text: str) -> str:
+    """Rule-based: 'code' when programming vocabulary or code syntax appears, 'writing' for English/prose tasks."""
+    if _CODE.search(text):
+        return "code"
+    if _WRITING.search(text):
+        return "writing"
+    return "general"
 _PROPER = re.compile(r"\b[A-Z][a-zA-Z]{2,}\b")
 
 
@@ -112,7 +131,8 @@ class TextPerceiver(Perceiver):
         elif not tokenize(norm):
             missing.append("what you would like me to do")
         return Observation(raw_text=text, request=norm, intent=intent, entities=extract_entities(norm),
-                           constraints=extract_constraints(norm), underspecified=bool(missing), missing=missing)
+                           constraints=extract_constraints(norm), underspecified=bool(missing), missing=missing,
+                           domain=detect_domain(text))
 
 
 class Perception:

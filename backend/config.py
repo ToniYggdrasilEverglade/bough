@@ -52,6 +52,10 @@ class Settings:
     model_name: str = "llama3.2"
     model_api_key: str = field(default="", repr=False)   # SECRET: never exposed, not even in repr()
     model_json_mode: bool = True
+    model_plan_tokens: int = 1500          # completion-token caps per task (256 truncated every real answer)
+    model_review_tokens: int = 600
+    model_reply_tokens: int = 6000
+    max_reply_chars: int = 16000           # final reply clip; code answers need far more than the old 4000
     model_timeout_s: float = 20.0
     mock_latency_s: float = 0.0
     # --- web fetching (trusted server configuration only) ---
@@ -75,6 +79,8 @@ class Settings:
     # --- memory / attention ---
     memory_min_score: float = 0.15
     include_model_interpretations: bool = False
+    seed_enabled: bool = True              # built-in, read-only knowledge seeds (backend/memory/seeds/*.json)
+    max_seed_memories: int = 4             # separate budget: seeds never crowd out the user's own memories
     # --- evaluation / selection ---
     enable_model_review: bool = False
     w_relevance: float = 0.35
@@ -94,7 +100,8 @@ class Settings:
         for name in ("max_model_calls", "max_proposals", "workspace_max_items",
                      "max_retrieved_memories", "max_input_chars", "max_sessions",
                      "max_events_per_cycle", "max_events_per_source_type", "max_memory_records",
-                     "web_fetch_context_chars"):
+                     "web_fetch_context_chars", "max_seed_memories", "model_plan_tokens",
+                     "model_review_tokens", "model_reply_tokens", "max_reply_chars"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be >= 1")
         if self.max_retries < 0:
@@ -168,6 +175,12 @@ class Settings:
             max_sessions=i("BRAIN_MAX_SESSIONS", d.max_sessions),
             max_memory_records=i("BRAIN_MAX_MEMORY_RECORDS", d.max_memory_records),
             memory_min_score=f("BRAIN_MEMORY_MIN_SCORE", d.memory_min_score),
+            seed_enabled=b("BRAIN_SEED_ENABLED", d.seed_enabled),
+            max_seed_memories=i("BRAIN_MAX_SEED_MEMORIES", d.max_seed_memories),
+            model_plan_tokens=i("BRAIN_MODEL_PLAN_TOKENS", d.model_plan_tokens),
+            model_review_tokens=i("BRAIN_MODEL_REVIEW_TOKENS", d.model_review_tokens),
+            model_reply_tokens=i("BRAIN_MODEL_REPLY_TOKENS", d.model_reply_tokens),
+            max_reply_chars=i("BRAIN_MAX_REPLY_CHARS", d.max_reply_chars),
             include_model_interpretations=b("BRAIN_INCLUDE_MODEL_INTERPRETATIONS", d.include_model_interpretations),
             enable_model_review=b("BRAIN_ENABLE_MODEL_REVIEW", d.enable_model_review),
             min_select_score=f("BRAIN_MIN_SELECT_SCORE", d.min_select_score),

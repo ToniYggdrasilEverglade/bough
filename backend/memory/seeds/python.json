@@ -1,0 +1,18 @@
+{
+  "domain": "python",
+  "description": "Python 3 conventions and quick facts.",
+  "entries": [
+    {"id": "py-001", "text": "Python: target 3.10+. Use type hints on function signatures, f-strings for formatting, pathlib.Path for paths, and `if __name__ == \"__main__\":` to guard the entry point.", "tags": ["python", "py", "type", "hint", "fstring", "pathlib", "main"]},
+    {"id": "py-002", "text": "Python layout: imports (stdlib, third-party, local, blank line between groups), constants, functions/classes, then main(). Run with `python script.py` or `python -m package`.", "tags": ["python", "layout", "import", "structure", "module", "package", "run"]},
+    {"id": "py-003", "text": "Python errors: catch specific exceptions (ValueError, FileNotFoundError), never bare `except:`. Re-raise with `raise ... from e` to keep the cause. Use `with` for files, sockets and locks.", "tags": ["python", "exception", "try", "except", "error", "with", "context", "manager"]},
+    {"id": "py-004", "text": "Python data: dataclasses for plain records, enum.Enum for fixed choices, typing.Protocol for duck-typed interfaces, collections.defaultdict/Counter/deque before writing your own.", "tags": ["python", "dataclass", "enum", "protocol", "collections", "counter", "defaultdict"]},
+    {"id": "py-005", "text": "Python idioms: list/dict comprehensions over map/filter, enumerate() over range(len()), zip() to pair sequences, `a if cond else b`, unpacking `first, *rest = items`.", "tags": ["python", "idiom", "comprehension", "enumerate", "zip", "pythonic", "list", "dict"]},
+    {"id": "py-006", "text": "Python virtualenv: `python -m venv .venv && source .venv/bin/activate`, then `pip install -r requirements.txt`. Pin versions in requirements.txt; never pip install into the system interpreter on Kali/Debian.", "tags": ["python", "venv", "virtualenv", "pip", "requirements", "install", "kali", "debian"]},
+    {"id": "py-007", "text": "Python async: `async def` + `await`; run with `asyncio.run(main())`; use `asyncio.gather` for concurrent awaitables and `asyncio.to_thread` for blocking calls. Never block the loop with time.sleep or requests.", "tags": ["python", "async", "asyncio", "await", "gather", "event", "loop", "blocking"]},
+    {"id": "py-008", "text": "Python HTTP: urllib.request for zero-dependency scripts; `requests` or `httpx` when sessions, retries or async matter. Always set a timeout.", "tags": ["python", "http", "request", "urllib", "httpx", "api", "fetch", "timeout"]},
+    {"id": "py-009", "text": "Python CLI: argparse with a help string per argument; `python tool.py --help` must explain usage. Return a non-zero exit code on failure via sys.exit(1).", "tags": ["python", "cli", "argparse", "argument", "command", "line", "exit"]},
+    {"id": "py-010", "text": "Python JSON/files: json.load(f)/json.dump(obj, f, indent=2); open text files with encoding=\"utf-8\"; read large files line by line instead of .read().", "tags": ["python", "json", "file", "read", "write", "open", "encoding", "csv"]},
+    {"id": "py-011", "text": "FastAPI: define request/response models with pydantic BaseModel, use Depends for auth/db, async endpoints for I/O, run with `uvicorn app:app --reload`.", "tags": ["python", "fastapi", "pydantic", "uvicorn", "api", "endpoint", "web", "server"]},
+    {"id": "py-012", "text": "Python testing: pytest, test files named test_*.py, plain `assert`, fixtures for setup, `pytest -q` to run. Use tmp_path for files and monkeypatch for env vars.", "tags": ["python", "pytest", "test", "fixture", "assert", "tmp_path", "monkeypatch"]}
+  ]
+}
