@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from .agents.adaptation import ADAPTATION_DOC, Adaptation
 from .agents.attention import Attention
+from .agents.branches import Branches, apply_fixes, classify
 from .agents.evaluation import CRITERIA, Evaluator
 from .agents.language import LanguageAgent
 from .agents.perception import Perception, detect_domain
@@ -34,17 +35,27 @@ from .agents.planning import Planner
 from .agents.selection import RULES_TEXT, Selector
 from .config import Settings
 from .context import CycleContext, ModelBudget
-from .errors import (BrainError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, MemoryUnavailable, NotFound,
+from .errors import (BrainError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, MemoryUnavailable, ModelFailure, NotFound,
                      StaleCycleError)
 from .event_bus import EventBus
 from .memory.base import MemoryBackend
 from .models.base import ModelAdapter
 from .models.gateway import ModelGateway
-from .schemas import Event, EventType, RawInput, clip, jsonable, new_id, utcnow_iso
+from .models.validation import validate_text
+from .schemas import Event, EventType, RawInput, SelectedAction, clip, jsonable, new_id, utcnow_iso
 from .memory.base import Owner
 from .memory.seed import SeedStore
 from .sessions import Session, SessionManager
 from .web_tool import WebTool
+
+DECISION_RULES = [
+    "R0 rule-only paths: explicit 'remember ...' saves and /fetch run without asking the model to decide.",
+    "D0 blocked / model_unavailable: no usable draft -> truthful notice, nothing invented.",
+    "D4 published_clean: every branch check passed -> the model's text is published untouched.",
+    "D1 published_with_fixes: only deterministic fixes were needed (forbidden terms, length limits, secret redaction).",
+    "D2 repaired: at least one check needed a rewrite -> ONE bounded repair call; the rewrite is re-inspected and used only if it fails fewer checks.",
+    "D3 repair_rejected / repair_unavailable / repair_skipped / published_with_flags: original kept, remaining failures shown as flags.",
+]
 
 log = logging.getLogger("brain.orchestrator")
 ET = EventType
@@ -66,6 +77,7 @@ class Orchestrator:
         self.adaptation = Adaptation(settings)
         self.web_tool = WebTool(settings)
         self.seeds = SeedStore(enabled=settings.seed_enabled)
+        self.branches = Branches(settings.max_reply_chars)
 
     # ================================================================ public API
     def describe(self) -> Dict[str, Any]:
@@ -77,8 +89,11 @@ class Orchestrator:
                 "memory": {"backend": self.store.name},
                 "seeds": self.seeds.describe(),
                 "criteria": CRITERIA, "selection_rules": RULES_TEXT, "adaptation": ADAPTATION_DOC,
-                "components": ["perception", "attention", "memory", "workspace", "planning", "evaluation",
-                               "selection", "tool", "language", "feedback"]}
+                "pipeline": self.settings.pipeline, "decision_rules": DECISION_RULES,
+                "components": (["perception", "attention", "memory", "workspace", "tool", "root", "branches",
+                                "decision", "language", "feedback"] if self.settings.pipeline == "root" else
+                               ["perception", "attention", "memory", "workspace", "planning", "evaluation",
+                                "selection", "tool", "language", "feedback"])}
 
     def bind(self, owner: Owner, session_id: str, create: bool = True) -> str:
         """Resolve a client session id for `owner`, (re)attach the owner's current credentials to the
@@ -245,6 +260,9 @@ class Orchestrator:
             self._ws(ctx, sess, "memory", "memory", self._mem_brief(m), 0.6)
         await self._workspace_event(ctx, sess)
 
+        if s.pipeline == "root":
+            return await self._root_pipeline(ctx, sess, obs, att, model_view)
+
         # ---- 3. planning
         await self._activate(ctx, "planning", "propose candidate actions")
         plan_view = model_view("planning")
@@ -307,6 +325,182 @@ class Orchestrator:
 
         final = {"text": lang.text, "action_kind": sel.kind, "proposal_id": sel.proposal_id,
                  "method": lang.method, "post_checks": lang.post_checks, "notes": lang.notes,
+                 "mock": self.adapter.is_mock, "tool_result": ctx.data.get("tool_result")}
+        return await self._publish_final(ctx, sess, final, obs.request)
+
+    # ================================================================ root pipeline (Yggdrasil)
+    async def _root_pipeline(self, ctx: CycleContext, sess: Session, obs, att, model_view) -> Dict[str, Any]:
+        """Trunk: the model answers the request freely, once, in plain text. Branches: rule-based agents
+        inspect that draft (constraints, completeness, directness, grounding, safety, size). Decision:
+        publish / fix / one bounded repair call / notice. The model never sees a schema and never decides
+        whether its own output is acceptable."""
+        s = self.settings
+        tool_result: Optional[Dict[str, Any]] = None
+
+        # ---- 3. rule-only paths: explicit memory saves and the /fetch command never need the model to decide
+        if obs.intent == "save_memory":
+            if obs.underspecified:
+                sel = self._rule_action("clarify", {"question": "What would you like me to remember?"},
+                                        "R0 save_memory_underspecified", "explicit remember-request without content")
+            elif sess.memory_enabled:
+                sel = self._rule_action("acknowledge_save", {"template": "acknowledge_save"}, "R0 save_memory",
+                                        "explicit remember-request; stored verbatim, no model involved")
+            else:
+                sel = self._rule_action("notice", {"code": "memory_disabled"}, "R0 save_memory_memory_off",
+                                        "explicit remember-request while memory is off")
+            return await self._root_finish_template(ctx, sess, obs, sel, model_view)
+
+        fetch_question: Optional[str] = None
+        if obs.request == "/fetch" or obs.request.startswith("/fetch "):
+            parts = obs.request.split(maxsplit=2)
+            if len(parts) < 2:
+                sel = self._rule_action("clarify", {"question": "Use /fetch https://example.com/ followed by an optional question."},
+                                        "R0 fetch_without_url", "/fetch needs a URL")
+                return await self._root_finish_template(ctx, sess, obs, sel, model_view)
+            fetch_question = parts[2] if len(parts) > 2 else "Summarize the fetched page concisely."
+            sel = self._rule_action("web_fetch", {"url": parts[1], "points": [fetch_question]}, "R0 explicit_fetch",
+                                    "URL came from the user's /fetch command")
+            tool_result = await self._run_web_fetch(ctx, sess, sel)
+            ctx.data["tool_result"] = self._tool_brief(tool_result)
+            if not tool_result.get("ok"):
+                return await self._root_finish_template(ctx, sess, obs, sel, model_view, tool_result=tool_result)
+
+        # ---- 4. ROOT: one free-form model call
+        await self._activate(ctx, "root", "model answers the request freely (plain text, no schema)")
+        extra = {"tool_result": tool_result} if tool_result is not None else {}
+        if fetch_question:
+            extra["request"] = fetch_question
+        view = model_view("language", **extra)
+        draft, model_error = await self._root_call(ctx, "root", view)
+        self._current(ctx, sess)
+        ctx.data["root"] = {"method": "model" if draft is not None else "unavailable", "model_error": model_error,
+                            "chars": len(draft or ""), "rounds": 1}
+        ev_r = await self._emit(ctx, "root", ET.ROOT_DONE, {
+            "round": 1, "task": "root", "ok": draft is not None, "model_error": model_error,
+            "chars": len(draft or ""), "preview": clip(draft or "", 400), "model_calls_used": ctx.budget.used})
+        ctx.parent_id = ev_r.event_id
+        if draft is None:
+            sel = self._rule_action("notice", {"code": "model_unavailable", "reason": model_error},
+                                    "D0 model_unavailable", "root model produced no usable draft")
+            return await self._root_finish_template(ctx, sess, obs, sel, model_view, tool_result=tool_result)
+        self._ws(ctx, sess, "draft", "root", {"preview": clip(draft, 300), "chars": len(draft)}, 0.7)
+
+        # ---- 5. BRANCHES: rule-based inspection (no model)
+        await self._activate(ctx, "branches", "inspect the draft: constraints, completeness, directness, grounding, safety")
+        user_mem = sum(1 for m in att.memories if m.get("origin") != "seed")
+        report = self.branches.inspect(obs, draft, user_memories=user_mem, tool_result=tool_result, round_no=1)
+        ev_b = await self._emit(ctx, "branches", ET.BRANCHES_DONE, dict(report.to_dict(), round=1))
+        ctx.parent_id = ev_b.event_id
+        self._ws(ctx, sess, "branch_report", "branches", {"round": 1, "failed": [c.name for c in report.failed],
+                                                            "score": report.score}, 0.6)
+        rounds = [{"round": 1, "report": report.to_dict()}]
+
+        # ---- 6. DECISION (rules)
+        await self._activate(ctx, "decision", "publish, fix, repair once, or fall back")
+        final_text, final_report, rule, reason = draft, report, "D4 published_clean", "every branch check passed"
+        repair_info: Dict[str, Any] = {"attempted": False}
+        if report.blocked:
+            sel = self._rule_action("notice", {"code": "model_unavailable", "reason": "empty draft"},
+                                    "D0 blocked", "; ".join(c.detail for c in report.failed if c.severity == "block"))
+            return await self._root_finish_template(ctx, sess, obs, sel, model_view, tool_result=tool_result)
+        if report.needs_repair and s.root_repair_enabled and ctx.budget.remaining > 0:
+            problems = [{"name": c.name, "branch": c.branch, "detail": c.detail}
+                        for c in report.failed if c.severity in ("repair", "fix")]
+            repaired, rep_err = await self._root_call(ctx, "repair", dict(view, draft=draft, problems=problems))
+            self._current(ctx, sess)
+            ctx.data["root"]["rounds"] = 2
+            ev_r2 = await self._emit(ctx, "root", ET.ROOT_DONE, {
+                "round": 2, "task": "repair", "ok": repaired is not None, "model_error": rep_err,
+                "chars": len(repaired or ""), "preview": clip(repaired or "", 400), "model_calls_used": ctx.budget.used,
+                "problems": problems})
+            ctx.parent_id = ev_r2.event_id
+            repair_info = {"attempted": True, "ok": repaired is not None, "model_error": rep_err, "problems": problems}
+            if repaired is not None:
+                report2 = self.branches.inspect(obs, repaired, user_memories=user_mem, tool_result=tool_result, round_no=2)
+                ev_b2 = await self._emit(ctx, "branches", ET.BRANCHES_DONE, dict(report2.to_dict(), round=2))
+                ctx.parent_id = ev_b2.event_id
+                rounds.append({"round": 2, "report": report2.to_dict()})
+                if not report2.blocked and len(report2.failed) < len(report.failed):
+                    final_text, final_report = repaired, report2
+                    rule, reason = "D2 repaired", f"repair fixed {len(report.failed) - len(report2.failed)} of {len(report.failed)} failed checks"
+                    repair_info["used"] = True
+                else:
+                    rule, reason = "D3 repair_rejected", "repaired draft was not better; original kept"
+                    repair_info["used"] = False
+            else:
+                rule, reason = "D3 repair_unavailable", f"repair call failed ({rep_err}); original kept"
+        elif report.needs_repair:
+            rule, reason = "D3 repair_skipped", ("repair disabled" if not s.root_repair_enabled else "model call budget exhausted")
+
+        final_text, fixes = apply_fixes(final_text, obs, s.max_reply_chars)
+        if fixes and rule == "D4 published_clean":
+            rule, reason = "D1 published_with_fixes", "deterministic fixes applied"
+        remaining = [c.name for c in final_report.failed if c.severity == "repair"]
+        if remaining and not rule.startswith("D2"):
+            rule = rule if rule.startswith("D3") else "D3 published_with_flags"
+            reason = reason + f"; still failing: {', '.join(remaining)}"
+        kind = classify(final_text, obs, tool_result)
+        sel = SelectedAction(proposal_id=None, kind=kind, content_spec={"source": "root"}, rule=rule, reason=reason,
+                             ranking=[], supported_by=[m["id"] for m in att.memories if m.get("origin") != "seed"])
+        ctx.data["selected"] = sel.to_dict()
+        ctx.data["branches"] = {"rounds": rounds, "final_failed": [c.name for c in final_report.failed],
+                                "repair": repair_info, "fixes": fixes}
+        ev_s = await self._emit(ctx, "decision", ET.ACTION_SELECTED, dict(sel.to_dict(), repair=repair_info, fixes=fixes,
+                                                                          still_failing=remaining))
+        ctx.parent_id = ev_s.event_id
+        self._ws(ctx, sess, "selected_action", "decision", {"kind": kind, "rule": rule}, 0.9)
+        await self._workspace_event(ctx, sess)
+
+        mw = await self._maybe_store(ctx, sess, obs, sel)
+        ctx.data["memory_write"] = mw
+        ev_w = await self._emit(ctx, "memory", ET.MEMORY_WRITE, mw)
+        ctx.parent_id = ev_w.event_id
+
+        await self._activate(ctx, "language", "publish the filtered reply")
+        self._current(ctx, sess)
+        ev_l = await self._emit(ctx, "language", ET.LANGUAGE_DONE, {
+            "method": "root_model", "post_checks": fixes, "notes": remaining, "action_kind": kind,
+            "model_calls_used": ctx.budget.used})
+        ctx.parent_id = ev_l.event_id
+        final = {"text": final_text, "action_kind": kind, "proposal_id": None, "method": "root_model",
+                 "post_checks": fixes, "notes": remaining, "rule": rule, "mock": self.adapter.is_mock,
+                 "tool_result": ctx.data.get("tool_result")}
+        return await self._publish_final(ctx, sess, final, obs.request)
+
+    async def _root_call(self, ctx: CycleContext, task: str, data: Dict[str, Any]):
+        """One gated plain-text model call. Returns (text | None, error_code | None)."""
+        try:
+            text = await self.gateway.call(ctx, task, data, lambda raw: validate_text(raw, self.settings.max_reply_chars))
+            return text, None
+        except ModelFailure as f:
+            return None, f.code
+
+    @staticmethod
+    def _rule_action(kind: str, spec: Dict[str, Any], rule: str, reason: str) -> SelectedAction:
+        return SelectedAction(proposal_id=None, kind=kind, content_spec=spec, rule=rule, reason=reason, ranking=[])
+
+    async def _root_finish_template(self, ctx, sess, obs, sel: SelectedAction, model_view, tool_result=None):
+        """Rule-decided outcomes (saves, fetch errors, model failures): template text, no model call."""
+        await self._activate(ctx, "decision", "rule-decided action, no model involved")
+        ctx.data["selected"] = sel.to_dict()
+        ev_s = await self._emit(ctx, "decision", ET.ACTION_SELECTED, sel.to_dict())
+        ctx.parent_id = ev_s.event_id
+        self._ws(ctx, sess, "selected_action", "decision", {"kind": sel.kind, "rule": sel.rule}, 0.9)
+        mw = await self._maybe_store(ctx, sess, obs, sel)
+        ctx.data["memory_write"] = mw
+        ev_w = await self._emit(ctx, "memory", ET.MEMORY_WRITE, mw)
+        ctx.parent_id = ev_w.event_id
+        await self._activate(ctx, "language", "render rule-decided action from template")
+        spec = dict(sel.content_spec, render="template")
+        tsel = SelectedAction(sel.proposal_id, sel.kind, spec, sel.rule, sel.reason, sel.ranking)
+        view = model_view("language", tool_result=tool_result) if tool_result is not None else model_view("language")
+        lang = await self.language.render(ctx, obs, tsel, view, mw)
+        ev_l = await self._emit(ctx, "language", ET.LANGUAGE_DONE, {
+            "method": lang.method, "post_checks": lang.post_checks, "notes": lang.notes,
+            "action_kind": sel.kind, "model_calls_used": ctx.budget.used})
+        ctx.parent_id = ev_l.event_id
+        final = {"text": lang.text, "action_kind": sel.kind, "proposal_id": None, "method": lang.method,
+                 "post_checks": lang.post_checks, "notes": lang.notes, "rule": sel.rule,
                  "mock": self.adapter.is_mock, "tool_result": ctx.data.get("tool_result")}
         return await self._publish_final(ctx, sess, final, obs.request)
 
@@ -473,6 +667,7 @@ class Orchestrator:
                 "memories_retrieved": d.get("memories", []), "memories_dropped": d.get("memories_dropped", []),
                 "proposals": d.get("proposals", []), "evaluations": d.get("evaluations", []),
                 "selected": d.get("selected"), "tool_result": d.get("tool_result"), "memory_write": d.get("memory_write"),
+                "root": d.get("root"), "branches": d.get("branches"), "pipeline": self.settings.pipeline,
                 "model": {"name": self.adapter.name, "is_mock": self.adapter.is_mock},
                 "model_calls_used": ctx.budget.used, "model_calls_limit": ctx.budget.limit,
                 "limits_hit": ctx.limits_hit, "events": ctx.events}

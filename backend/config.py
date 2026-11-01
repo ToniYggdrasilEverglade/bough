@@ -46,6 +46,9 @@ class Settings:
     supabase_url: str = ""                 # https://<ref>.supabase.co
     supabase_publishable_key: str = ""     # public by design (ships to the browser); RLS guards the data
     jwks_cache_s: float = 3600.0
+    # --- pipeline ---
+    pipeline: str = "root"                 # "root": model answers freely, agents filter (Yggdrasil) | "proposals": council flow
+    root_repair_enabled: bool = True       # allow ONE bounded model rewrite when branch checks fail
     # --- model adapter ---
     model_backend: str = "mock"            # "mock" | "http"
     model_url: str = field(default="http://127.0.0.1:11434/v1/chat/completions", repr=False)  # may embed credentials
@@ -95,6 +98,8 @@ class Settings:
     def __post_init__(self):
         if self.model_backend not in ("mock", "http"):
             raise ValueError("BRAIN_MODEL_BACKEND must be 'mock' or 'http'")
+        if self.pipeline not in ("root", "proposals"):
+            raise ValueError("BRAIN_PIPELINE must be 'root' or 'proposals'")
         if urlsplit(self.model_url).scheme not in ("http", "https"):
             raise ValueError("BRAIN_MODEL_URL must start with http:// or https://")
         for name in ("max_model_calls", "max_proposals", "workspace_max_items",
@@ -154,6 +159,8 @@ class Settings:
             supabase_url=s("BRAIN_SUPABASE_URL", d.supabase_url).rstrip("/"),
             supabase_publishable_key=s("BRAIN_SUPABASE_PUBLISHABLE_KEY", d.supabase_publishable_key),
             jwks_cache_s=f("BRAIN_JWKS_CACHE_S", d.jwks_cache_s),
+            pipeline=s("BRAIN_PIPELINE", d.pipeline).lower(),
+            root_repair_enabled=b("BRAIN_ROOT_REPAIR", d.root_repair_enabled),
             model_backend=s("BRAIN_MODEL_BACKEND", d.model_backend).lower(),
             model_url=s("BRAIN_MODEL_URL", d.model_url), model_name=s("BRAIN_MODEL_NAME", d.model_name),
             model_api_key=s("BRAIN_MODEL_API_KEY", d.model_api_key),

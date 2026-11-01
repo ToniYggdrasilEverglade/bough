@@ -49,6 +49,7 @@ class ChattyModel(ModelAdapter):
 
 def run(text, memory_enabled=True, **settings_kw):
     d = tempfile.mkdtemp()
+    settings_kw.setdefault("pipeline", "proposals")   # these tests cover the council flow explicitly
     s = Settings(db_path=os.path.join(d, "t.sqlite3"), model_backend="http", model_url="http://x/", **settings_kw)
     model = ChattyModel()
     orch = Orchestrator(s, MemoryStore(s.db_path, 100), model)

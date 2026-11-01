@@ -47,7 +47,33 @@ class MockModel(ModelAdapter):
                                 for p in data.get("proposals", [])]}
         if task == "verbalize":
             return self._verbalize(data, self.fail_mode if failing else None)
+        if task == "root":
+            return self._root(data)
+        if task == "repair":
+            return self._repair(data)
         raise ModelOutputError(f"mock: unknown task {task}")
+
+    # ------------------------------------------------------------------ root pipeline (plain text)
+    def _root(self, d: Dict[str, Any]) -> str:
+        req = d.get("request", "")
+        tool = d.get("tool_result")
+        if tool and tool.get("ok"):
+            page = tool["data"]
+            return (f"{MOCK_TAG} Fetched {page.get('final_url')} ({page.get('title') or 'untitled'}). "
+                    f"Excerpt: {str(page.get('text', ''))[:200]}")
+        mems = [m for m in d.get("memories", []) if m.get("origin") != "seed"]
+        text = (f"{MOCK_TAG} I'm a deterministic placeholder standing in for the real model, so this is not a real "
+                f"answer. Request understood as: “{req}”.")
+        if mems:
+            text += " Relevant saved memories: " + "; ".join(f"“{m['text']}”" for m in mems[:2]) + "."
+        if d.get("domain") == "code":
+            text += "\n\n```python\n# placeholder from the mock model\nprint('mock')\n```"
+        return text
+
+    def _repair(self, d: Dict[str, Any]) -> str:
+        draft = str(d.get("draft", ""))
+        problems = d.get("problems", [])
+        return draft + "\n\n[mock repair applied for: " + ", ".join(p.get("name", "?") for p in problems) + "]"
 
     # ------------------------------------------------------------------
     def _plan(self, d: Dict[str, Any], mode: Optional[str]) -> Dict[str, Any]:

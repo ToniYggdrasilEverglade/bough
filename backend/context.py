@@ -11,6 +11,10 @@ class ModelBudget:
     limit: int
     used: int = 0
 
+    @property
+    def remaining(self) -> int:
+        return max(0, self.limit - self.used)
+
     def try_consume(self) -> bool:
         if self.used >= self.limit:
             return False

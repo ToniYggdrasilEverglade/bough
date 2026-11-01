@@ -46,6 +46,8 @@ class EventType(str, Enum):
     WORKSPACE_UPDATED = "workspace.updated"
     MODEL_CALL = "model.call"
     PLANNING_DONE = "planning.done"
+    ROOT_DONE = "root.done"                 # root pipeline: free-form model draft (or repair) finished
+    BRANCHES_DONE = "branches.done"         # root pipeline: rule-based branch checks on a draft
     EVALUATION_DONE = "evaluation.done"
     ACTION_SELECTED = "action.selected"
     TOOL_STARTED = "tool.started"

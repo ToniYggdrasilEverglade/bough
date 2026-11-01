@@ -12,5 +12,7 @@ def build_adapter(settings: Settings) -> ModelAdapter:
                              settings.model_json_mode,
                              completion_tokens={"plan": settings.model_plan_tokens,
                                                 "review": settings.model_review_tokens,
-                                                "verbalize": settings.model_reply_tokens})
+                                                "verbalize": settings.model_reply_tokens,
+                                                "root": settings.model_reply_tokens,
+                                                "repair": settings.model_reply_tokens})
     return MockModel(latency_s=settings.mock_latency_s)

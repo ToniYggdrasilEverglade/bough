@@ -2,11 +2,18 @@
    textContent / DOM nodes, never innerHTML, because messages, memories and model output are untrusted. */
 "use strict";
 
-const STAGES = [
+const STAGES_PROPOSALS = [
   ["perception", "Perception"], ["memory", "Memory"], ["attention", "Attention"], ["workspace", "Workspace"],
   ["planning", "Planning"], ["evaluation", "Evaluation"], ["selection", "Selection"], ["tool", "Tool"],
   ["language", "Language"],
 ];
+// Yggdrasil layout: the model is the trunk (Root), the agents are branches that filter its reply.
+const STAGES_ROOT = [
+  ["perception", "Perception"], ["memory", "Memory"], ["attention", "Attention"], ["workspace", "Workspace"],
+  ["tool", "Tool"], ["root", "Root model"], ["branches", "Branches"], ["decision", "Decision"],
+  ["language", "Language"],
+];
+const stages = () => (S.config && S.config.pipeline === "root" ? STAGES_ROOT : STAGES_PROPOSALS);
 const $ = (sel) => document.querySelector(sel);
 function el(tag, props, ...kids) {
   const n = document.createElement(tag);
@@ -24,7 +31,7 @@ let sid = sessionStorage.getItem("brain_sid");
 if (!sid) { sid = "s_" + Math.random().toString(36).slice(2, 12); sessionStorage.setItem("brain_sid", sid); }
 
 const S = { ws: null, config: null, memoryEnabled: false, running: false, cycleStart: {}, proposals: [], chosen: null,
-            retrieved: [], dropped: {}, timer: null };
+            retrieved: [], dropped: {}, timer: null, rounds: [] };
 
 // ------------------------------------------------------------------ auth (Supabase email + password)
 // Talks to the project's GoTrue REST API directly; the backend only ever sees the resulting access token.
@@ -82,7 +89,7 @@ function hideAuth() {
 // ------------------------------------------------------------------ rail
 function resetRail() {
   const rail = $("#rail"); rail.replaceChildren();
-  for (const [id, label] of STAGES) rail.append(el("li", { "data-stage": id }, el("b", { text: label }), el("small", { text: "" })));
+  for (const [id, label] of stages()) rail.append(el("li", { "data-stage": id }, el("b", { text: label }), el("small", { text: "" })));
 }
 function lightStage(id, note) {
   const li = document.querySelector(`#rail li[data-stage="${id}"]`);
@@ -121,6 +128,12 @@ function onHello(msg) {
   $("#mock-banner").hidden = !mock;
   const chip = $("#model-chip"); chip.textContent = "model: " + msg.config.model.name; chip.className = "chip" + (mock ? " mock" : "");
   $("#calls-chip").textContent = "calls 0/" + msg.config.settings.max_model_calls;
+  const root = msg.config.pipeline === "root";
+  $("#proposals-title").textContent = root ? "Root draft and branch checks" : "Proposals and evaluation";
+  $("#selected-title").textContent = root ? "Decision" : "Selected action";
+  $("#pipeline-chip").textContent = root ? "pipeline: root → branches" : "pipeline: proposals";
+  if (!$("#proposals .prop") && !$("#proposals .round")) $("#proposals").replaceChildren(el("p", { class: "empty", text: root ? "The root model's draft and the branch checks appear here." : "Proposals appear after planning." }));
+  resetRail();
   const seeds = msg.config.seeds || {};
   $("#seed-note").textContent = seeds.enabled ? `Built-in knowledge: ${seeds.count} read-only entries (${Object.keys(seeds.domains || {}).join(", ")}) are consulted alongside your memories.` : "Built-in knowledge seeds are disabled.";
   renderWorkspace(msg.state.workspace);
@@ -147,8 +160,10 @@ function onEvent(ev) {
     case "workspace.updated": renderWorkspace(p.items, p.size, p.max_items); break;
     case "model.call": $("#calls-chip").textContent = `calls ${p.calls_used}/${p.calls_limit}`; break;
     case "planning.done": S.proposals = p.proposals.map((x) => ({ ...x, eval: null })); renderProposals(p); break;
+    case "root.done": S.rounds[p.round - 1] = { draft: p, report: null }; renderRounds(); break;
+    case "branches.done": if (S.rounds[p.round - 1]) S.rounds[p.round - 1].report = p; else S.rounds[p.round - 1] = { draft: null, report: p }; renderRounds(); break;
     case "evaluation.done": for (const e of p.evaluations) { const x = S.proposals.find((q) => q.proposal_id === e.proposal_id); if (x) x.eval = e; } renderProposals(); break;
-    case "action.selected": S.chosen = p.proposal_id; renderProposals(); renderSelected(p); break;
+    case "action.selected": S.chosen = p.proposal_id; if (S.rounds.length) renderRounds(); else renderProposals(); renderSelected(p); break;
     case "memory.write": renderMemoryWrite(p); if (p.status === "saved") loadMemories(); break;
     case "feedback.recorded": break;
     case "cycle.cancelled": case "cycle.timeout": case "cycle.error": case "limit.reached":
@@ -157,7 +172,7 @@ function onEvent(ev) {
 }
 
 function newCycleUI() {
-  resetRail(); S.proposals = []; S.chosen = null; S.retrieved = []; S.dropped = {};
+  resetRail(); S.proposals = []; S.chosen = null; S.retrieved = []; S.dropped = {}; S.rounds = [];
   $("#timeline").replaceChildren();
   for (const id of ["#selected", "#proposals", "#retrieved"]) $(id).replaceChildren(el("p", { class: "empty", text: "Working…" }));
   $("#observation").replaceChildren();
@@ -185,7 +200,9 @@ function summarise(ev) {
     case "model.call": return `${p.task} attempt ${p.attempt}: ${p.ok ? "ok" : "FAILED " + p.error_code} (${p.duration_ms} ms)`;
     case "planning.done": return `${p.proposals.length} proposal(s) via ${p.source}` + (p.rejected.length ? `, ${p.rejected.length} rejected` : "");
     case "evaluation.done": return `${p.evaluations.length} scored`;
-    case "action.selected": return `${p.kind} by ${p.rule}`;
+    case "root.done": return `${p.task} round ${p.round}: ` + (p.ok ? `${p.chars} chars` : `FAILED ${p.model_error}`);
+    case "branches.done": return `round ${p.round}: ${p.passed}/${p.total} checks passed` + (p.failed.length ? `, failed: ${p.failed.join(", ")}` : "");
+    case "action.selected": return `${p.kind} by ${p.rule}` + (p.fixes && p.fixes.length ? `, fixes: ${p.fixes.join(", ")}` : "");
     case "memory.write": return `${p.status}` + (p.reason ? ` (${p.reason})` : "");
     case "tool.started": return `${p.tool} ${p.url}`;
     case "tool.done": return p.ok ? `${p.tool} ok: ${p.final_url} (${p.chars} chars${p.truncated || p.context_truncated ? ", truncated" : ""})` : `${p.tool} FAILED ${p.error.code}: ${p.error.message}`;
@@ -249,11 +266,41 @@ function renderProposals(planning) {
     for (const n of notes) box.append(el("div", { class: "toast-note", text: n }));
   }
 }
+// Root pipeline: one card per round (1 = free draft, 2 = repair) with the branch checks beneath it.
+function renderRounds() {
+  const box = $("#proposals"); box.replaceChildren();
+  S.rounds.forEach((r, i) => {
+    const card = el("div", { class: "round" });
+    const d = r.draft, rep = r.report;
+    const head = el("div", {}, tag(i === 0 ? "root draft" : "repair", "sel"));
+    if (d) head.append(d.ok ? tag(`${d.chars} chars`) : tag(`model failed: ${d.model_error}`, "bad"));
+    card.append(head);
+    if (d && d.ok) card.append(el("pre", { class: "draft", text: d.preview + (d.chars > d.preview.length ? " …" : "") }));
+    if (d && d.problems) card.append(el("div", { class: "why", text: "asked to fix: " + d.problems.map((q) => q.name).join(", ") }));
+    if (rep) {
+      const list = el("div", { class: "checks" });
+      for (const c of rep.checks) {
+        list.append(el("div", { class: "check " + (c.ok ? "ok" : c.severity) },
+          tag(c.ok ? "ok" : c.severity, c.ok ? "ok" : (c.severity === "block" ? "bad" : "warn")),
+          el("span", { class: "branch", text: c.branch }), el("span", { text: c.name }),
+          c.detail ? el("span", { class: "why", text: " — " + c.detail }) : null));
+      }
+      card.append(el("div", { class: "why", text: `${rep.passed}/${rep.total} checks passed · score ${fmt(rep.score)}` }), list);
+    } else if (d && d.ok) card.append(el("div", { class: "why", text: "branches inspecting…" }));
+    box.append(card);
+  });
+  if (!S.rounds.length) box.append(el("p", { class: "empty", text: "Working…" }));
+}
 function renderSelected(sel) {
-  $("#selected").replaceChildren(
-    el("div", {}, tag(sel.kind, "sel"), tag(sel.rule), sel.proposal_id ? tag(sel.proposal_id) : tag("synthesised clarification", "warn")),
-    el("p", { text: sel.reason }),
-    el("div", { class: "why" }, ...sel.ranking.map((r) => tag(`${r.proposal_id} ${r.kind}: ${fmt(r.eval_total)} ${r.bias >= 0 ? "+" : ""}${fmt(r.bias)} = ${fmt(r.adjusted)}${r.blocked ? " (blocked)" : ""}`))));
+  const head = el("div", {}, tag(sel.kind, "sel"), tag(sel.rule));
+  if (sel.proposal_id) head.append(tag(sel.proposal_id));
+  else if (!(S.config && S.config.pipeline === "root")) head.append(tag("synthesised clarification", "warn"));
+  const parts = [head, el("p", { text: sel.reason })];
+  if (sel.ranking && sel.ranking.length) parts.push(el("div", { class: "why" }, ...sel.ranking.map((r) => tag(`${r.proposal_id} ${r.kind}: ${fmt(r.eval_total)} ${r.bias >= 0 ? "+" : ""}${fmt(r.bias)} = ${fmt(r.adjusted)}${r.blocked ? " (blocked)" : ""}`))));
+  if (sel.repair && sel.repair.attempted) parts.push(el("div", { class: "why" }, tag(sel.repair.used ? "repair used" : "repair kept out", sel.repair.used ? "ok" : "warn"), ` model rewrite requested for: ${(sel.repair.problems || []).map((q) => q.name).join(", ")}` + (sel.repair.model_error ? ` (failed: ${sel.repair.model_error})` : "")));
+  if (sel.fixes && sel.fixes.length) parts.push(el("div", { class: "why" }, ...sel.fixes.map((f) => tag(f, "warn"))));
+  if (sel.still_failing && sel.still_failing.length) parts.push(el("div", { class: "why" }, "published with open flags: ", ...sel.still_failing.map((f) => tag(f, "bad"))));
+  $("#selected").replaceChildren(...parts);
 }
 function renderMemoryWrite(mw) {
   const box = $("#selected");

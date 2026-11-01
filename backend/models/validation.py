@@ -103,3 +103,18 @@ def validate_verbalize(raw: Any, max_text: int = 16000) -> Dict[str, str]:
     return {"proposal_id": _text(raw.get("proposal_id"), "proposal_id", 64),
             "action_kind": _text(raw.get("action_kind"), "action_kind", 40),
             "text": _text(raw.get("text"), "text", max_text)}
+
+
+_THINK = re.compile(r"<think>.*?</think>\s*", re.S | re.I)
+
+
+def validate_text(raw: Any, max_text: int = 16000) -> str:
+    """Free-form reply from the root model. Only control characters are scrubbed; newlines/tabs survive."""
+    if not isinstance(raw, str):
+        raise ModelOutputError("reply must be text")
+    # Reasoning models (Qwen3 etc.) may prepend a <think>...</think> block; the user never needs it.
+    raw = _THINK.sub("", raw)
+    text = _CTRL.sub(" ", raw).strip()
+    if not text:
+        raise ModelOutputError("reply was empty")
+    return text[:max_text]

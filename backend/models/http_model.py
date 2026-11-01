@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from ..errors import ModelOutputError, ModelTimeout, ModelUnavailable
 from .base import ModelAdapter
-from .prompts import build_messages
+from .prompts import TEXT_TASKS, build_messages
 
 
 MAX_RESPONSE_BYTES = 1_000_000
@@ -22,6 +22,8 @@ TASK_COMPLETION_TOKENS = {
     "plan": 1500,
     "review": 600,
     "verbalize": 6000,
+    "root": 6000,
+    "repair": 6000,
 }
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I)
 
@@ -113,7 +115,7 @@ class HttpChatModel(ModelAdapter):
             "max_completion_tokens": self.completion_tokens.get(task, 1024),
         }
 
-        if self.json_mode:
+        if self.json_mode and task not in TEXT_TASKS:
             body["response_format"] = {"type": "json_object"}
 
 
@@ -124,10 +126,13 @@ class HttpChatModel(ModelAdapter):
             flush=True,
         )
 
-        content = await asyncio.to_thread(self._post, body, timeout)
+        text_task = task in TEXT_TASKS
+        content = await asyncio.to_thread(self._post, body, timeout, text_task)
+        if text_task:
+            return content          # free-form reply; the branches inspect it, nothing parses it
         return extract_json(content)
 
-    def _post(self, body: Dict[str, Any], timeout: float) -> str:
+    def _post(self, body: Dict[str, Any], timeout: float, allow_truncated: bool = False) -> str:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -224,12 +229,15 @@ class HttpChatModel(ModelAdapter):
                 "unexpected response envelope from model endpoint"
             ) from None
 
-        if choice.get("finish_reason") == "length":
-            raise ModelOutputError("model output reached its completion-token limit")
-
         if not isinstance(content, str):
             raise ModelOutputError(
                 "model response content was missing or not text"
             )
+
+        if choice.get("finish_reason") == "length":
+            if not allow_truncated:
+                raise ModelOutputError("model output reached its completion-token limit")
+            # Free-form replies keep what was produced; the branches see the cut (e.g. an unclosed fence).
+            content = content.rstrip() + "\n\n[reply cut off at the completion-token limit]"
 
         return content

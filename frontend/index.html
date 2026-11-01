@@ -28,6 +28,7 @@
     </label>
     <span class="chip" id="model-chip">model: …</span>
     <span class="chip" id="calls-chip" title="Model calls used in the current cycle">calls 0/0</span>
+    <span class="chip" id="pipeline-chip" title="root: the model answers freely and the agents filter its reply; proposals: the agents choose among model-proposed actions">pipeline: …</span>
     <span class="chip" id="conn-chip">connecting…</span>
     <span class="chip" id="user-chip" hidden></span>
     <button id="new-session" class="ghost" title="Start a fresh session with an empty workspace">New session</button>
@@ -69,12 +70,12 @@
 
   <section class="inspector">
     <div class="panel wide" id="selected-panel">
-      <h2>Selected action</h2>
+      <h2 id="selected-title">Selected action</h2>
       <div id="selected" class="body"><p class="empty">Nothing selected yet.</p></div>
     </div>
 
     <div class="panel" id="proposals-panel">
-      <h2>Proposals and evaluation</h2>
+      <h2 id="proposals-title">Proposals and evaluation</h2>
       <div id="proposals" class="body"><p class="empty">Proposals appear after planning.</p></div>
     </div>
 

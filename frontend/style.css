@@ -107,6 +107,16 @@ select { width: auto; }
 .memlist li { display: flex; gap: .6rem; justify-content: space-between; align-items: flex-start; }
 .memlist .origin { color: var(--graphite); font-size: .75rem; }
 .toast-note { margin-top: .5rem; color: var(--graphite); font-size: .82rem; }
+/* root pipeline: draft rounds + branch checks */
+.round { border-top: 1px solid var(--rule); padding: .55rem 0; }
+.round:first-child { border-top: 0; }
+.round .draft { margin: .4rem 0; padding: .5rem .6rem; max-height: 11rem; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: .78rem; background: var(--paper, #f6f5f1); border: 1px solid var(--rule); border-radius: 6px; }
+.round .why { color: var(--graphite); font-size: .82rem; }
+.checks { display: flex; flex-direction: column; gap: .2rem; margin-top: .3rem; font-size: .8rem; }
+.check { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem; }
+.check .branch { color: var(--graphite); min-width: 6.5rem; }
+.check .why { flex-basis: 100%; padding-left: 3.4rem; }
+.check.repair, .check.block { color: var(--ink); }
 
 @media (max-width: 960px) {
   .layout { grid-template-columns: 1fr; }
