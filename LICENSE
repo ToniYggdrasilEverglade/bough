@@ -1,0 +1,147 @@
+Brain AI License
+Attribution Request and OpenAI Exclusion
+Version 1.0
+
+Copyright (c) 2026 ToniYggdrasilEverglade
+
+1. DEFINITIONS
+
+"Software" means the Brain AI source code and accompanying documentation made available under this License by a copyright holder authorized to license that material.
+
+"Modified Version" means a version that copies, modifies, or incorporates copyright-protected portions of the Software.
+
+"OpenAI Organization" means OpenAI and the legal entities through which it conducts its business; any entity that directly or indirectly controls, is controlled by, or is under common control with those entities; and any successor entity continuing the relevant OpenAI business.
+
+"Control" means the power to direct an entity's management or policies through ownership, voting rights, contract, or equivalent authority.
+
+"Excluded Party" means an entity within the OpenAI Organization, or a person or organization acting on its behalf, at its direction, or as its agent in connection with the relevant activity involving the Software.
+
+Employees, contractors, consultants, research partners, and service providers are Excluded Parties when using the Software in performing work for the OpenAI Organization. Unrelated personal activity is not excluded solely because of a person's employment or association. Merely being an OpenAI customer or using an OpenAI model does not make someone an Excluded Party.
+
+2. PERMISSION FOR ELIGIBLE USERS
+
+Permission is granted only to persons and entities that are not Excluded Parties.
+
+Subject to this License, eligible users may use, copy, study, modify, merge, distribute, sell copies of, and publicly or privately host the Software and Modified Versions, including for commercial purposes. Eligible users are not required to publish their source code or modifications.
+
+Each recipient receives permission directly from the applicable copyright holder under this License. Distribution does not authorize removal or replacement of this License for the portions it covers. You may license your original additions separately, provided doing so does not remove the requirements applicable to the Software itself.
+
+No permission is granted by implication to an Excluded Party.
+
+3. VOLUNTARY REQUEST FOR PUBLIC CREDIT
+
+If you publicly host the Software or a Modified Version, the original author kindly asks that you display:
+
+    Based on Brain AI by ToniYggdrasilEverglade
+
+Preferably include a link to:
+
+    https://github.com/ToniYggdrasilEverglade/brain-ai
+
+A footer, About page, Credits page, or public documentation page is a welcome location. Credit does not need to appear on every page.
+
+This is a voluntary request, not a condition of permission. Failure to display public-facing credit does not, by itself, violate this License or terminate your permissions. Public hosting is permitted for eligible users whether or not they display this voluntary credit.
+
+This request does not replace the mandatory requirements in Section 4.
+
+4. REQUIRED NOTICES AND AUTHORSHIP
+
+When distributing copies of the Software or substantial portions of it, you must retain this License and applicable copyright notices.
+
+You must not falsely represent the original Software as entirely your own creation. You may identify and claim authorship of your own modifications and original contributions.
+
+Preserving notices in distributed copies is mandatory. Displaying public-facing credit under Section 3 is voluntary.
+
+5. OPENAI EXCLUSION — NO PERMISSION GRANTED
+
+Excluded Parties receive no permission under this License to use, operate, copy, reproduce, modify, adapt, merge, distribute, sublicense, sell, host, deploy, or incorporate the Software or a Modified Version.
+
+This exclusion includes internal operations, research, product development, model training, fine-tuning, evaluation, benchmarking, and providing services. It applies to public and private activities that require permission from the applicable copyright holder.
+
+No exception is provided for noncommercial use, internal use, research, testing, evaluation, attribution, or a short period of use.
+
+An otherwise eligible user may not knowingly act as an intermediary to supply the Software, a Modified Version, or a dedicated deployment for an Excluded Party's organizational use.
+
+Providing credit, preserving notices, paying another user, obtaining a copy through an intermediary, using a Modified Version, operating privately, or correcting a violation after discovery does not grant an Excluded Party permission under this License.
+
+If an eligible user becomes an Excluded Party, permission ceases for activities covered by the exclusion from the time that status changes. Earlier permitted activities do not become violations solely because of that later change.
+
+This exclusion is a mandatory limitation on permission, not a voluntary request. The correction period in Section 10 does not apply to it.
+
+6. OPENAI MODEL CONNECTIONS ARE PERMITTED
+
+Eligible users may connect the Software to OpenAI models, APIs, or compatible services for their own otherwise permitted purposes.
+
+Selecting an OpenAI model, paying for inference, or exchanging ordinary inference requests and responses does not, by itself, violate Section 5 or make the user an Excluded Party.
+
+This permission allows eligible users to operate the Software with those services. It does not grant the OpenAI Organization permission to obtain, operate, copy, modify, distribute, or incorporate the Software itself.
+
+Knowingly supplying copies or substantial portions of the Software to an Excluded Party for an excluded purpose is not covered by this permission. The treatment of prompts, responses, and other data under a provider's separate terms is outside the scope of this License.
+
+7. PUBLIC ACCESS AND INCIDENTAL VISITORS
+
+An eligible operator of a public deployment is not required by this License to determine every visitor's employer or affiliation. An incidental visit by an Excluded Party does not, by itself, make the operator an intermediary or agent.
+
+This does not authorize knowingly providing a dedicated deployment, integration, account, or service for an Excluded Party's organizational use. It does not grant an Excluded Party permission to operate or use the Software where permission is required from the applicable copyright holder.
+
+8. OWNERSHIP AND ENDORSEMENT
+
+Each copyright holder retains ownership of their own copyright-protected contributions.
+
+This License does not claim exclusive ownership of general ideas, algorithms, filtering concepts, methods, or independently developed implementations.
+
+Attribution does not imply endorsement, sponsorship, or approval of a deployment or its modifications. You must not falsely represent your deployment as the official Brain AI project or as operated by the original author.
+
+No trademark license or express patent license is granted.
+
+9. THIRD-PARTY AND SEPARATELY LICENSED MATERIAL
+
+The project may include, depend on, or integrate with open-source software, third-party services, and separately licensed materials, including Supabase-related components.
+
+Those materials remain governed by their respective licenses, terms of service, copyright notices, and applicable requirements.
+
+This License applies only to material that its copyright holders have authority to license under these terms. It does not replace or relicense third-party or separately licensed material. Where a file or component is identified as separately licensed, that license governs that material.
+
+Permission to use Brain AI does not itself grant permission to use third-party code, models, text, images, audio, video, trademarks, services, or other protected material.
+
+You are responsible for obtaining necessary permissions and complying with applicable third-party requirements in addition to this License. Do not remove required third-party license texts, copyright notices, attributions, or other notices.
+
+Nothing in this License establishes that a particular combination is legally compatible or authorizes a combination, distribution, or use where applicable requirements cannot all be satisfied.
+
+The OpenAI exclusion does not independently restrict third-party material available under its own license. Using that material separately does not, by itself, require permission under this License.
+
+10. VIOLATIONS, CORRECTION, AND ENFORCEMENT
+
+For an otherwise eligible user's failure to retain this License or applicable copyright notices under Section 4, the copyright holder may provide written notice reasonably identifying the violation. The recipient has 14 calendar days after receiving that notice to correct the identified violation.
+
+Permission does not terminate solely for that identified notice-preservation violation during the correction period. If fully corrected within that period, permission continues, provided the user otherwise complies with this License.
+
+If the violation remains uncorrected after that period, permissions terminate. Reinstatement requires the copyright holder's written permission.
+
+For a material violation of another mandatory condition, including false representation of authorship, permissions terminate upon the violation unless the copyright holder expressly agrees otherwise in writing. After termination, the user must cease activities that require permission under this License.
+
+Failure to provide the voluntary public credit requested in Section 3 is not a violation.
+
+Excluded Parties never receive permission under this License. No notice, correction period, or opportunity for reinstatement under this section grants them permission.
+
+If the copyright holder discovers use by an Excluded Party that requires the copyright holder's permission and has not been separately authorized, the copyright holder intends to pursue legal action and seek remedies available under applicable law.
+
+Providing credit or stopping after discovery does not, by itself, grant permission or waive claims concerning prior unauthorized use.
+
+The copyright holder reserves available legal remedies. This License does not guarantee any particular remedy or outcome.
+
+11. NO WARRANTY
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+12. LIMITATION OF LIABILITY
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHORS AND COPYRIGHT HOLDERS SHALL NOT BE LIABLE FOR CLAIMS, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT, OR OTHERWISE.
+
+13. LICENSE VERSIONS AND INDEPENDENT RIGHTS
+
+Each copy is governed by the license version under which it was received. Publication of a later version does not, by itself, replace the terms applicable to an earlier copy. Permissions remain subject to the termination provisions of the applicable version.
+
+Nothing in this License purports to prohibit activities that applicable law permits without the copyright holder's permission or revoke rights independently obtained under another applicable license, separate authorization, or hosting platform's terms.
+
+No permission for an Excluded Party is granted by this License.
