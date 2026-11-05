@@ -1,4 +1,4 @@
-"""Root pipeline (Yggdrasil): the model answers freely once, rule-based branches filter the draft,
+"""Root pipeline (Bough): the model answers freely once, rule-based branches filter the draft,
 the decision step publishes / fixes / repairs once / falls back. A scripted fake model lets each
 branch be exercised deterministically."""
 import asyncio, os, tempfile

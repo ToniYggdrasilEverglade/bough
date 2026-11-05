@@ -1,6 +1,6 @@
 """Branches: rule-based inspectors that filter the root model's free-form reply.
 
-Yggdrasil layout.  The root model answers undisturbed (one plain-text call, no schema).  Every branch
+Bough layout.  The root model answers undisturbed (one plain-text call, no schema).  Every branch
 below reads the SAME draft and reports checks; none of them calls the model, so they cannot be talked
 into anything by the draft.  The Decision step (bottom of this file) turns the reports into one of:
 

@@ -16,7 +16,7 @@ from typing import Awaitable, Callable, Deque, Dict, Iterable, List, Optional, U
 from .errors import LoopGuardError
 from .schemas import Event, EventType
 
-log = logging.getLogger("brain.bus")
+log = logging.getLogger("bough.bus")
 
 # Terminal / bookkeeping events are always allowed so a tripped guard can still report itself.
 _EXEMPT = {EventType.CYCLE_ERROR, EventType.CYCLE_CANCELLED, EventType.CYCLE_TIMEOUT,

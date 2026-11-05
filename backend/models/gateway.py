@@ -24,7 +24,7 @@ from .base import ModelAdapter
 
 
 def make_logger() -> logging.Logger:
-    logger = logging.getLogger("brain.model_debug")
+    logger = logging.getLogger("bough.model_debug")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 

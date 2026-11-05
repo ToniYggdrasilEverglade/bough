@@ -22,7 +22,7 @@ from .base import Owner
 from .store import check_kind_origin, clean_text, rank_rows
 from .text import token_set
 
-log = logging.getLogger("brain.memory.supabase")
+log = logging.getLogger("bough.memory.supabase")
 _FIELDS = "id,kind,text,origin,created_at,source_session,source_cycle"
 
 

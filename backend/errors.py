@@ -4,31 +4,31 @@ from __future__ import annotations
 from typing import Iterable
 
 
-class BrainError(Exception):
+class BoughError(Exception):
     """Base class for expected, user-reportable errors."""
 
 
-class InputRejected(BrainError):
+class InputRejected(BoughError):
     """The user's input (or an identifier) failed validation."""
 
 
-class NotFound(BrainError):
+class NotFound(BoughError):
     """A referenced session, cycle or memory does not exist."""
 
 
-class MemoryRejected(BrainError):
+class MemoryRejected(BoughError):
     """A long-term memory write was refused (empty, too long, limit reached...)."""
 
 
-class MemoryUnavailable(BrainError):
+class MemoryUnavailable(BoughError):
     """The memory backend could not be reached or refused the caller (network, 401/403, timeout)."""
 
 
-class AuthRequired(BrainError):
+class AuthRequired(BoughError):
     """The request carried no usable credential (missing, malformed, expired or wrong-audience token)."""
 
 
-class ModelError(BrainError):
+class ModelError(BoughError):
     """Base class for model-adapter problems."""
 
 
@@ -44,7 +44,7 @@ class ModelOutputError(ModelError):
     """The model answered, but the output was not valid for the requested schema."""
 
 
-class ModelFailure(BrainError):
+class ModelFailure(BoughError):
     """Raised by the gateway after retries/budget are exhausted. Agents catch it and fall back."""
 
     def __init__(self, code: str, detail: str = ""):
@@ -53,15 +53,15 @@ class ModelFailure(BrainError):
         self.detail = detail
 
 
-class LoopGuardError(BrainError):
+class LoopGuardError(BoughError):
     """Too many events of the same kind in one cycle (runaway loop protection)."""
 
 
-class StaleCycleError(BrainError):
+class StaleCycleError(BoughError):
     """A write was attempted for a cycle that is no longer the session's current cycle."""
 
 
-class CycleSuperseded(BrainError):
+class CycleSuperseded(BoughError):
     """The cycle was cancelled or replaced by a newer request."""
 
 

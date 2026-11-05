@@ -28,7 +28,7 @@ class WebTool:
         async with self._slots:
             try:
                 if self._module is None:
-                    name = "_brain_trusted_web_fetch_wrapper"
+                    name = "_bough_trusted_web_fetch_wrapper"
                     spec = importlib.util.spec_from_file_location(name, wrapper)
                     if spec is None or spec.loader is None:
                         return failed("CONFIG_ERROR", "Cannot load the trusted web-fetch wrapper.")

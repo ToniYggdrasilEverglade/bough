@@ -17,7 +17,7 @@ from .prompts import TEXT_TASKS, build_messages
 
 MAX_RESPONSE_BYTES = 1_000_000
 # Per-task output budgets; keep planning separate from answer generation.
-# Defaults only; Settings overrides these (BRAIN_MODEL_PLAN_TOKENS / _REVIEW_TOKENS / _REPLY_TOKENS).
+# Defaults only; Settings overrides these (BOUGH_MODEL_PLAN_TOKENS / _REVIEW_TOKENS / _REPLY_TOKENS).
 TASK_COMPLETION_TOKENS = {
     "plan": 1500,
     "review": 600,
@@ -136,7 +136,7 @@ class HttpChatModel(ModelAdapter):
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "BrainAI/1.0",
+            "User-Agent": "Bough/1.0",
         }
 
         if self._api_key:

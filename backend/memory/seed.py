@@ -7,7 +7,7 @@ the language model as memories with `origin == "seed"`, and evaluation accepts t
 
 Why a file and not a table: the same seeds must be visible to every user on both the SQLite and the
 Supabase backend, they must be read-only, and they change only when the code changes. A JSON directory
-gives all of that with zero migration surface. Set BRAIN_SEED_ENABLED=false to turn them off.
+gives all of that with zero migration surface. Set BOUGH_SEED_ENABLED=false to turn them off.
 
 File format:
     {"domain": "python", "description": "...",
@@ -29,7 +29,7 @@ from ..schemas import MemoryRecord
 from .store import rank_rows
 from .text import token_set
 
-log = logging.getLogger("brain.memory.seed")
+log = logging.getLogger("bough.memory.seed")
 
 SEED_DIR = Path(__file__).with_name("seeds")
 SEED_ORIGIN = "seed"

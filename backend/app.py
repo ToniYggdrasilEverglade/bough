@@ -1,7 +1,7 @@
 """FastAPI transport layer: REST + WebSocket. All behaviour lives in the Orchestrator; this file only
 validates requests, enforces the Origin policy and authentication, and forwards real backend events.
 
-Auth: with BRAIN_AUTH_MODE=supabase every /api route except GET /api/config needs
+Auth: with BOUGH_AUTH_MODE=supabase every /api route except GET /api/config needs
 `Authorization: Bearer <supabase access token>`; the WebSocket must send
 {"type": "auth", "token": "..."} as its first frame. Session ids are namespaced per user."""
 from __future__ import annotations
@@ -21,13 +21,13 @@ from pydantic import BaseModel, Field
 
 from .auth import Authenticator, Principal
 from .config import LOOPBACK_HOSTS, Settings
-from .errors import AuthRequired, BrainError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound
+from .errors import AuthRequired, BoughError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound
 from .memory import MemoryBackend, build_store
 from .models.base import ModelAdapter
 from .models.factory import build_adapter
 from .orchestrator import Orchestrator
 
-log = logging.getLogger("brain.app")
+log = logging.getLogger("bough.app")
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
@@ -65,7 +65,7 @@ def _origin_allowed(origin: Optional[str]) -> bool:
         allowed = {
             value.strip().rstrip("/")
             for value in os.getenv(
-                "BRAIN_ALLOWED_ORIGINS", ""
+                "BOUGH_ALLOWED_ORIGINS", ""
             ).split(",")
             if value.strip()
         }
@@ -93,12 +93,12 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
         yield
         store.close()
 
-    app = FastAPI(title="Brain AI prototype", lifespan=lifespan)
+    app = FastAPI(title="Bough prototype", lifespan=lifespan)
     app.state.orch = orch
     app.state.auth = auth
 
-    @app.exception_handler(BrainError)
-    async def brain_error(_, exc: BrainError):
+    @app.exception_handler(BoughError)
+    async def bough_error(_, exc: BoughError):
         code = (401 if isinstance(exc, AuthRequired) else 404 if isinstance(exc, NotFound)
                 else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, MemoryUnavailable) else 400)
         headers = {"WWW-Authenticate": "Bearer"} if code == 401 else None
@@ -229,7 +229,7 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
                 if kind == "message":
                     try:
                         task = await orch.submit(sid, msg.get("text", ""))
-                    except BrainError as e:
+                    except BoughError as e:
                         await send({"type": "error", "message": str(e)})
                         continue
                     t = asyncio.create_task(deliver(task))
@@ -245,7 +245,7 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
             unsubscribe()
             try:
                 await orch.cancel(sid, "client_disconnected")
-            except BrainError:
+            except BoughError:
                 pass
 
     # static dashboard last, so /api and /ws take precedence

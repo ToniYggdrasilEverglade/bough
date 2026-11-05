@@ -8,7 +8,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Secrets / local config (BRAIN_MODEL_API_KEY etc. live here)
+# Secrets / local config (BOUGH_MODEL_API_KEY etc. live here)
 .env
 .env.*
 !.env.example

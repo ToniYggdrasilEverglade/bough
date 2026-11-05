@@ -1,12 +1,12 @@
-Brain AI License
+Bough License
 Attribution Request and OpenAI Exclusion
 Version 1.0
 
-Copyright (c) 2026 ToniYggdrasilEverglade
+Copyright (c) 2026 ToniBoughEverglade
 
 1. DEFINITIONS
 
-"Software" means the Brain AI source code and accompanying documentation made available under this License by a copyright holder authorized to license that material.
+"Software" means the Bough source code and accompanying documentation made available under this License by a copyright holder authorized to license that material.
 
 "Modified Version" means a version that copies, modifies, or incorporates copyright-protected portions of the Software.
 
@@ -32,11 +32,11 @@ No permission is granted by implication to an Excluded Party.
 
 If you publicly host the Software or a Modified Version, the original author kindly asks that you display:
 
-    Based on Brain AI by ToniYggdrasilEverglade
+    Based on Bough by ToniBoughEverglade
 
 Preferably include a link to:
 
-    https://github.com/ToniYggdrasilEverglade/brain-ai
+    https://github.com/ToniBoughEverglade/bough
 
 A footer, About page, Credits page, or public documentation page is a welcome location. Credit does not need to appear on every page.
 
@@ -90,7 +90,7 @@ Each copyright holder retains ownership of their own copyright-protected contrib
 
 This License does not claim exclusive ownership of general ideas, algorithms, filtering concepts, methods, or independently developed implementations.
 
-Attribution does not imply endorsement, sponsorship, or approval of a deployment or its modifications. You must not falsely represent your deployment as the official Brain AI project or as operated by the original author.
+Attribution does not imply endorsement, sponsorship, or approval of a deployment or its modifications. You must not falsely represent your deployment as the official Bough project or as operated by the original author.
 
 No trademark license or express patent license is granted.
 
@@ -102,7 +102,7 @@ Those materials remain governed by their respective licenses, terms of service, 
 
 This License applies only to material that its copyright holders have authority to license under these terms. It does not replace or relicense third-party or separately licensed material. Where a file or component is identified as separately licensed, that license governs that material.
 
-Permission to use Brain AI does not itself grant permission to use third-party code, models, text, images, audio, video, trademarks, services, or other protected material.
+Permission to use Bough does not itself grant permission to use third-party code, models, text, images, audio, video, trademarks, services, or other protected material.
 
 You are responsible for obtaining necessary permissions and complying with applicable third-party requirements in addition to this License. Do not remove required third-party license texts, copyright notices, attributions, or other notices.
 

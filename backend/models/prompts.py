@@ -63,7 +63,7 @@ SCHEMAS = {
 TEXT_TASKS = ("root", "repair")
 
 ROOT_SYSTEM = (
-    "You are the core model of Brain AI. Reply to the user directly, in plain text or Markdown - not JSON. "
+    "You are the core model of Bough. Reply to the user directly, in plain text or Markdown - not JSON. "
     "The user message contains a JSON 'data' object: data.request is what to answer; data.conversation_history "
     "holds earlier turns of this session (oldest first) - use them to resolve references and never ask for "
     "information already present there; data.memories are retrieved records: origin 'user_stated' = facts the user "
@@ -80,7 +80,7 @@ ROOT_SYSTEM = (
 )
 
 REPAIR_SYSTEM = (
-    "You are the core model of Brain AI revising your own draft. data.request is the user's request, data.draft "
+    "You are the core model of Bough revising your own draft. data.request is the user's request, data.draft "
     "is your previous reply, data.problems lists concrete checks it failed (name + detail), data.memories and "
     "data.constraints are as before. Return the complete corrected reply as plain text or Markdown - the whole "
     "reply, not a diff, not commentary about the changes, not JSON. Fix every listed problem while keeping "

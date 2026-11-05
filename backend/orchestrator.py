@@ -35,7 +35,7 @@ from .agents.planning import Planner
 from .agents.selection import RULES_TEXT, Selector
 from .config import Settings
 from .context import CycleContext, ModelBudget
-from .errors import (BrainError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, MemoryUnavailable, ModelFailure, NotFound,
+from .errors import (BoughError, CycleSuperseded, InputRejected, LoopGuardError, MemoryRejected, MemoryUnavailable, ModelFailure, NotFound,
                      StaleCycleError)
 from .event_bus import EventBus
 from .memory.base import MemoryBackend
@@ -57,7 +57,7 @@ DECISION_RULES = [
     "D3 repair_rejected / repair_unavailable / repair_skipped / published_with_flags: original kept, remaining failures shown as flags.",
 ]
 
-log = logging.getLogger("brain.orchestrator")
+log = logging.getLogger("bough.orchestrator")
 ET = EventType
 
 
@@ -328,7 +328,7 @@ class Orchestrator:
                  "mock": self.adapter.is_mock, "tool_result": ctx.data.get("tool_result")}
         return await self._publish_final(ctx, sess, final, obs.request)
 
-    # ================================================================ root pipeline (Yggdrasil)
+    # ================================================================ root pipeline (Bough)
     async def _root_pipeline(self, ctx: CycleContext, sess: Session, obs, att, model_view) -> Dict[str, Any]:
         """Trunk: the model answers the request freely, once, in plain text. Branches: rule-based agents
         inspect that draft (constraints, completeness, directness, grounding, safety, size). Decision:

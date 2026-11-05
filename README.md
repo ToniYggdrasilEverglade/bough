@@ -1,4 +1,4 @@
-# Brain AI
+# Bough
 
 An experimental AI application with a Python/FastAPI backend, a browser dashboard, configurable model pipelines, and persistent memory. It runs locally with a deterministic mock model by default; an OpenAI-compatible HTTP endpoint can provide real model responses.
 
@@ -17,8 +17,8 @@ An experimental AI application with a Python/FastAPI backend, a browser dashboar
 Requires Python 3.10 or newer. Run commands from the repository root.
 
 ```sh
-git clone https://github.com/ToniYggdrasilEverglade/brain-ai.git
-cd brain-ai
+git clone https://github.com/ToniBoughEverglade/bough.git
+cd bough
 python -m venv .venv
 ```
 
@@ -51,13 +51,13 @@ For custom settings, copy `.env.example` to `.env` in the repository root and ed
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `BRAIN_HOST` | Server bind address | `127.0.0.1` |
-| `BRAIN_PORT` | Server port | `8000` |
-| `BRAIN_MODEL_BACKEND` | Model adapter: `mock` or `http` | `mock` |
-| `BRAIN_AUTH_MODE` | Authentication: `off` or `supabase` | `off` |
-| `BRAIN_MEMORY_BACKEND` | Memory storage: `sqlite` or `supabase` | `sqlite` |
-| `BRAIN_DB_PATH` | SQLite database path | `data/brain.sqlite3` |
-| `BRAIN_PIPELINE` | Pipeline: `root` or `proposals` | `root` |
+| `BOUGH_HOST` | Server bind address | `127.0.0.1` |
+| `BOUGH_PORT` | Server port | `8000` |
+| `BOUGH_MODEL_BACKEND` | Model adapter: `mock` or `http` | `mock` |
+| `BOUGH_AUTH_MODE` | Authentication: `off` or `supabase` | `off` |
+| `BOUGH_MEMORY_BACKEND` | Memory storage: `sqlite` or `supabase` | `sqlite` |
+| `BOUGH_DB_PATH` | SQLite database path | `data/bough.sqlite3` |
+| `BOUGH_PIPELINE` | Pipeline: `root` or `proposals` | `root` |
 
 See `.env.example` for model token limits, request budgets, knowledge seeds, allowed origins, and other options.
 
@@ -66,34 +66,34 @@ See `.env.example` for model token limits, request budgets, knowledge seeds, all
 Set the HTTP adapter and your provider's OpenAI-compatible chat-completions endpoint in `.env`:
 
 ```dotenv
-BRAIN_MODEL_BACKEND=http
-BRAIN_MODEL_URL=https://your-provider.example/v1/chat/completions
-BRAIN_MODEL_NAME=your-model-name
-BRAIN_MODEL_API_KEY=your-api-key
+BOUGH_MODEL_BACKEND=http
+BOUGH_MODEL_URL=https://your-provider.example/v1/chat/completions
+BOUGH_MODEL_NAME=your-model-name
+BOUGH_MODEL_API_KEY=your-api-key
 ```
 
 For a local Ollama server, the example configuration uses:
 
 ```dotenv
-BRAIN_MODEL_BACKEND=http
-BRAIN_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
-BRAIN_MODEL_NAME=llama3.2
-BRAIN_MODEL_JSON_MODE=true
+BOUGH_MODEL_BACKEND=http
+BOUGH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+BOUGH_MODEL_NAME=llama3.2
+BOUGH_MODEL_JSON_MODE=true
 ```
 
-The local model server must be running and the selected model must be available. Restart Brain AI after changing configuration.
+The local model server must be running and the selected model must be available. Restart Bough after changing configuration.
 
 ### Supabase authentication and storage
 
 To enable Supabase sign-in, configure:
 
 ```dotenv
-BRAIN_AUTH_MODE=supabase
-BRAIN_SUPABASE_URL=https://<project-ref>.supabase.co
-BRAIN_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+BOUGH_AUTH_MODE=supabase
+BOUGH_SUPABASE_URL=https://<project-ref>.supabase.co
+BOUGH_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 ```
 
-SQLite can still be used with authentication enabled. To store memory in Supabase instead, apply the SQL migrations in `supabase/migrations/` to your project and set `BRAIN_MEMORY_BACKEND=supabase`. This backend requires Supabase authentication and uses each user's JWT with row-level security.
+SQLite can still be used with authentication enabled. To store memory in Supabase instead, apply the SQL migrations in `supabase/migrations/` to your project and set `BOUGH_MEMORY_BACKEND=supabase`. This backend requires Supabase authentication and uses each user's JWT with row-level security.
 
 With authentication enabled, API requests require a bearer token except for `GET /api/config`. WebSocket clients must send an authentication message as their first frame:
 
@@ -103,7 +103,7 @@ With authentication enabled, API requests require a bearer token except for `GET
 
 ### Optional web fetch
 
-The web-fetch integration is disabled by default. Build the Rust CLI in `tools/web_fetch` with `cargo build --release`, then configure the executable and wrapper using absolute paths in `.env`. Set `BRAIN_WEB_FETCH_ALLOWED_HOSTS` explicitly before enabling `BRAIN_WEB_FETCH_ENABLED`. See `.env.example` for the relevant settings.
+The web-fetch integration is disabled by default. Build the Rust CLI in `tools/web_fetch` with `cargo build --release`, then configure the executable and wrapper using absolute paths in `.env`. Set `BOUGH_WEB_FETCH_ALLOWED_HOSTS` explicitly before enabling `BOUGH_WEB_FETCH_ENABLED`. See `.env.example` for the relevant settings.
 
 ## Project layout
 

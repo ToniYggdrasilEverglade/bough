@@ -1,4 +1,4 @@
--- Brain AI memory backend. One row set per signed-in user; Postgres RLS enforces ownership so the
+-- Bough memory backend. One row set per signed-in user; Postgres RLS enforces ownership so the
 -- server never needs a database password or service key - it forwards the user's own JWT.
 
 create table public.memories (

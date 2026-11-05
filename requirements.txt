@@ -1,7 +1,7 @@
-# Brain AI backend — Python 3.10+
-# Run from the brain_ai/ directory:  python -m backend
+# Bough backend — Python 3.10+
+# Run from the bough/ directory:  python -m backend
 fastapi>=0.110
 uvicorn[standard]>=0.29   # [standard] pulls in websockets, needed for the /ws endpoint
 pydantic>=2.0
 python-dotenv>=1.0        # optional: loads .env; config.py falls back gracefully if absent
-PyJWT[crypto]>=2.8        # only needed with BRAIN_AUTH_MODE=supabase (ES256 JWT verification via JWKS)
+PyJWT[crypto]>=2.8        # only needed with BOUGH_AUTH_MODE=supabase (ES256 JWT verification via JWKS)

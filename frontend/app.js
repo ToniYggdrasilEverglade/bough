@@ -7,7 +7,7 @@ const STAGES_PROPOSALS = [
   ["planning", "Planning"], ["evaluation", "Evaluation"], ["selection", "Selection"], ["tool", "Tool"],
   ["language", "Language"],
 ];
-// Yggdrasil layout: the model is the trunk (Root), the agents are branches that filter its reply.
+// Bough layout: the model is the trunk (Root), the agents are branches that filter its reply.
 const STAGES_ROOT = [
   ["perception", "Perception"], ["memory", "Memory"], ["attention", "Attention"], ["workspace", "Workspace"],
   ["tool", "Tool"], ["root", "Root model"], ["branches", "Branches"], ["decision", "Decision"],
@@ -27,8 +27,8 @@ function el(tag, props, ...kids) {
 const tag = (text, cls) => el("span", { class: "tag " + (cls || ""), text });
 const fmt = (x) => (typeof x === "number" ? x.toFixed(2) : String(x));
 
-let sid = sessionStorage.getItem("brain_sid");
-if (!sid) { sid = "s_" + Math.random().toString(36).slice(2, 12); sessionStorage.setItem("brain_sid", sid); }
+let sid = sessionStorage.getItem("bough_sid");
+if (!sid) { sid = "s_" + Math.random().toString(36).slice(2, 12); sessionStorage.setItem("bough_sid", sid); }
 
 const S = { ws: null, config: null, memoryEnabled: false, running: false, cycleStart: {}, proposals: [], chosen: null,
             retrieved: [], dropped: {}, timer: null, rounds: [] };
@@ -41,12 +41,12 @@ const Auth = {
   get required() { return !!(this.cfg && this.cfg.mode === "supabase"); },
   init(cfg) {
     this.cfg = cfg;
-    try { this.session = JSON.parse(localStorage.getItem("brain_auth") || "null"); } catch (e) { this.session = null; }
+    try { this.session = JSON.parse(localStorage.getItem("bough_auth") || "null"); } catch (e) { this.session = null; }
   },
   save(sess) {
     this.session = sess ? { access_token: sess.access_token, refresh_token: sess.refresh_token,
                             expires_at: Math.floor(Date.now() / 1000) + (sess.expires_in || 3600), email: sess.user && sess.user.email } : null;
-    if (this.session) localStorage.setItem("brain_auth", JSON.stringify(this.session)); else localStorage.removeItem("brain_auth");
+    if (this.session) localStorage.setItem("bough_auth", JSON.stringify(this.session)); else localStorage.removeItem("bough_auth");
   },
   async gotrue(path, body, token) {
     const headers = { "Content-Type": "application/json", apikey: this.cfg.publishable_key };
@@ -395,7 +395,7 @@ $("#memory-toggle").addEventListener("change", async (e) => {
   const res = await api("PUT", `/api/sessions/${sid}/settings`, { memory_enabled: e.target.checked });
   S.memoryEnabled = !!res.memory_enabled; e.target.checked = S.memoryEnabled;
 });
-$("#new-session").addEventListener("click", () => { sessionStorage.removeItem("brain_sid"); location.reload(); });
+$("#new-session").addEventListener("click", () => { sessionStorage.removeItem("bough_sid"); location.reload(); });
 $("#auth-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#auth-signin").disabled = true;
@@ -416,7 +416,7 @@ $("#auth-signup").addEventListener("click", async () => {
 });
 $("#sign-out").addEventListener("click", async () => {
   if (S.ws) { S.ws.onclose = null; S.ws.close(); S.ws = null; }
-  await Auth.signOut(); sessionStorage.removeItem("brain_sid"); location.reload();
+  await Auth.signOut(); sessionStorage.removeItem("bough_sid"); location.reload();
 });
 $("#mem-form").addEventListener("submit", async (e) => {
   e.preventDefault();

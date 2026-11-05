@@ -21,7 +21,7 @@ from .config import Settings
 from .errors import AuthRequired
 from .memory.base import LOCAL, Owner
 
-log = logging.getLogger("brain.auth")
+log = logging.getLogger("bough.auth")
 ALGORITHMS = ("ES256", "RS256")
 
 
@@ -48,7 +48,7 @@ class Authenticator:
                 import jwt  # PyJWT
                 from jwt import PyJWKClient
             except ImportError as e:  # pragma: no cover
-                raise RuntimeError("BRAIN_AUTH_MODE=supabase needs 'PyJWT[crypto]' (see requirements.txt)") from e
+                raise RuntimeError("BOUGH_AUTH_MODE=supabase needs 'PyJWT[crypto]' (see requirements.txt)") from e
             self._jwt = jwt
             self.issuer = settings.supabase_url + "/auth/v1"
             self._jwks = PyJWKClient(self.issuer + "/.well-known/jwks.json", cache_keys=True,
