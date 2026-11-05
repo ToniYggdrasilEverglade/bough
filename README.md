@@ -17,7 +17,7 @@ An experimental AI application with a Python/FastAPI backend, a browser dashboar
 Requires Python 3.10 or newer. Run commands from the repository root.
 
 ```sh
-git clone https://github.com/ToniBoughEverglade/bough.git
+git clone https://github.com/ToniYggdrasilEverglade/bough.git
 cd bough
 python -m venv .venv
 ```
