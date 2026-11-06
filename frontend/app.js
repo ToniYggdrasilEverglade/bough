@@ -27,8 +27,11 @@ function el(tag, props, ...kids) {
 const tag = (text, cls) => el("span", { class: "tag " + (cls || ""), text });
 const fmt = (x) => (typeof x === "number" ? x.toFixed(2) : String(x));
 
-let sid = sessionStorage.getItem("bough_sid");
-if (!sid) { sid = "s_" + Math.random().toString(36).slice(2, 12); sessionStorage.setItem("bough_sid", sid); }
+// "brain_*" keys are from before the Brain AI -> Bough rename; carry them over once.
+let sid = sessionStorage.getItem("bough_sid") || sessionStorage.getItem("brain_sid");
+if (!sid) sid = "s_" + Math.random().toString(36).slice(2, 12);
+sessionStorage.setItem("bough_sid", sid);
+sessionStorage.removeItem("brain_sid");
 
 const S = { ws: null, config: null, memoryEnabled: false, running: false, cycleStart: {}, proposals: [], chosen: null,
             retrieved: [], dropped: {}, timer: null, rounds: [] };
@@ -41,12 +44,13 @@ const Auth = {
   get required() { return !!(this.cfg && this.cfg.mode === "supabase"); },
   init(cfg) {
     this.cfg = cfg;
-    try { this.session = JSON.parse(localStorage.getItem("bough_auth") || "null"); } catch (e) { this.session = null; }
+    try { this.session = JSON.parse(localStorage.getItem("bough_auth") || localStorage.getItem("brain_auth") || "null"); } catch (e) { this.session = null; }
   },
   save(sess) {
     this.session = sess ? { access_token: sess.access_token, refresh_token: sess.refresh_token,
                             expires_at: Math.floor(Date.now() / 1000) + (sess.expires_in || 3600), email: sess.user && sess.user.email } : null;
     if (this.session) localStorage.setItem("bough_auth", JSON.stringify(this.session)); else localStorage.removeItem("bough_auth");
+    localStorage.removeItem("brain_auth");
   },
   async gotrue(path, body, token) {
     const headers = { "Content-Type": "application/json", apikey: this.cfg.publishable_key };

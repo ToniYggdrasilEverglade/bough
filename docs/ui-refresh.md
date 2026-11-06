@@ -1,6 +1,6 @@
 # Integrate the Bough UI refresh with Copilot
 
-These assets are supplied for integration; index.html is intentionally unchanged. Preserve local modifications when applying this patch.
+Status: integrated. `index.html` loads `theme.js` (in head) and `professional.css` (after `style.css`) and has the `#theme-toggle` button.
 
 ## Copilot prompt
 

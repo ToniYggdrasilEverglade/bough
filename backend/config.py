@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass, field, fields
 from urllib.parse import urlsplit, urlunsplit
 
+LEGACY_DB_PATH = "data/brain.sqlite3"
+
 try:  # optional convenience
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover
@@ -146,7 +148,8 @@ class Settings:
             raise ValueError("BOUGH_MEMORY_BACKEND must be 'sqlite' or 'supabase'")
         if self.auth_mode == "supabase" or self.memory_backend == "supabase":
             u = urlsplit(self.supabase_url)
-            if u.scheme != "https" or not u.netloc or u.path not in ("", "/"):
+            if (u.scheme != "https" or not u.hostname or u.path not in ("", "/") or u.username is not None
+                    or u.password is not None or u.query or u.fragment):
                 raise ValueError("BOUGH_SUPABASE_URL must look like https://<ref>.supabase.co")
             if not self.supabase_publishable_key:
                 raise ValueError("BOUGH_SUPABASE_PUBLISHABLE_KEY is required")
@@ -182,23 +185,33 @@ class Settings:
             load_dotenv()
         e = os.environ if env is None else env
 
-        def s(name, default):
+        def get(name, default):
+            # BRAIN_* names are from before the Brain AI -> Bough rename; BOUGH_* wins when both are set.
+            if name.startswith("BOUGH_"):
+                return e.get(name, e.get("BRAIN_" + name[len("BOUGH_"):], default))
             return e.get(name, default)
 
+        def s(name, default):
+            return get(name, default)
+
         def i(name, default):
-            return int(e.get(name, default))
+            return int(get(name, default))
 
         def f(name, default):
-            return float(e.get(name, default))
+            return float(get(name, default))
 
         def b(name, default):
-            return str(e.get(name, default)).strip().lower() in ("1", "true", "yes", "on")
+            return str(get(name, default)).strip().lower() in ("1", "true", "yes", "on")
 
         d = cls()
+        db_path = d.db_path
+        if ("BOUGH_DB_PATH" not in e and "BRAIN_DB_PATH" not in e
+                and not os.path.exists(db_path) and os.path.exists(LEGACY_DB_PATH)):
+            db_path = LEGACY_DB_PATH        # keep using a Brain AI database instead of starting empty
         return cls(
             host=s("BOUGH_HOST", d.host), port=i("BOUGH_PORT", d.port),
             allow_non_local_bind=b("BOUGH_ALLOW_NON_LOCAL_BIND", d.allow_non_local_bind),
-            db_path=s("BOUGH_DB_PATH", d.db_path),
+            db_path=s("BOUGH_DB_PATH", db_path),
             memory_backend=s("BOUGH_MEMORY_BACKEND", d.memory_backend).lower(),
             auth_mode=s("BOUGH_AUTH_MODE", d.auth_mode).lower(),
             supabase_url=s("BOUGH_SUPABASE_URL", d.supabase_url).rstrip("/"),

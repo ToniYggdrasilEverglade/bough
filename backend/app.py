@@ -73,7 +73,7 @@ def _origin_allowed(origin: Optional[str]) -> bool:
         allowed = {
             value.strip().rstrip("/")
             for value in os.getenv(
-                "BOUGH_ALLOWED_ORIGINS", ""
+                "BOUGH_ALLOWED_ORIGINS", os.getenv("BRAIN_ALLOWED_ORIGINS", "")   # BRAIN_*: pre-rename name
             ).split(",")
             if value.strip()
         }

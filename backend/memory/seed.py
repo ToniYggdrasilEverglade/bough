@@ -139,7 +139,8 @@ class SeedStore:
                 if d["id"] not in seen:
                     out.append(d)
                     seen.add(d["id"])
-        return out[: max(limit, len(self._pins.get("always", [])) + len(self._pins.get(domain, [])))]
+        pin_count = len({rec.id for rec in self._pins.get("always", []) + self._pins.get(domain, [])})
+        return out[: max(limit, pin_count)]
 
     def describe(self) -> Dict[str, object]:
         return {"enabled": self.enabled, "count": len(self._rows), "domains": dict(self.domains),
