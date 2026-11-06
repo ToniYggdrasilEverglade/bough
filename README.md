@@ -130,6 +130,12 @@ Free-plan terms: personal, non-commercial use only, with attribution. The dashbo
 
 Ask explicitly ("use the web to ...", "search online for ...", "look it up online") and, when `BOUGH_MODEL_NAME` is `openai/gpt-oss-20b` or `openai/gpt-oss-120b` on Groq, Bough turns on Groq's built-in [browser search](https://console.groq.com/docs/browser-search) for that one reply. Groq runs the search on its side; Bough records the queries in the trace, and the grounding branch accepts "I searched the web" only when a search really ran. Searched replies get `BOUGH_MODEL_WEB_SEARCH_TIMEOUT_S` (default 60 s). Set `BOUGH_MODEL_WEB_SEARCH=off` to never search.
 
+Other Groq models (for example `qwen/qwen3.8-27b` or the Llama models) have no browser search. For them, an explicit web request is first searched by a helper model, `BOUGH_MODEL_WEB_SEARCH_HELPER` (default `openai/gpt-oss-20b`, same Groq key, at most `BOUGH_MODEL_WEB_SEARCH_HELPER_TOKENS`=700 output tokens), and your main model writes the answer from its findings. Set `BOUGH_MODEL_WEB_SEARCH_HELPER=` (empty) to turn the helper off.
+
+### GitHub lookups
+
+Questions that name a repository (`github.com/owner/repo`, or `owner/repo` together with the word GitHub/repo) and ask about its issues, pull requests, releases, commits or stats are answered from the GitHub REST API with any model: Bough sends read-only GET requests to `api.github.com` and gives the result to the model as fetched data. Pull requests are left out of "issues", and repos with issues turned off (such as `torvalds/linux`) are reported as such. Anonymous access allows 60 requests/hour per IP; set `BOUGH_GITHUB_TOKEN` (a fine-grained token with no extra permissions is enough for public repos) to raise that. `BOUGH_GITHUB_LOOKUP=off` disables it.
+
 gpt-oss models sometimes try to call a tool even when none was offered, and Groq rejects that with HTTP 400 `tool_use_failed`. Bough retries once with a "no tools" instruction instead of failing the reply, and if that also fails, the reply names the tool the model tried to call.
 
 ### Groq free-tier output limits

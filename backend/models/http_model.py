@@ -121,6 +121,8 @@ class HttpChatModel(ModelAdapter):
         completion_tokens: Optional[Dict[str, int]] = None,
         web_search: str = "auto",
         web_search_timeout_s: float = 60.0,
+        web_search_helper: str = "",
+        web_search_helper_tokens: int = 700,
     ):
         self.url = url
         self.model = model
@@ -128,6 +130,8 @@ class HttpChatModel(ModelAdapter):
         self.json_mode = json_mode
         self.web_search = web_search
         self.web_search_timeout_s = web_search_timeout_s
+        self.web_search_helper = web_search_helper
+        self.web_search_helper_tokens = web_search_helper_tokens
         # Learned from Groq "Request too large" errors (free-tier OTPM, e.g. 1000): every later request is
         # capped below it so it is not rejected again. None = no limit seen yet.
         self.output_cap: Optional[int] = None
@@ -142,9 +146,38 @@ class HttpChatModel(ModelAdapter):
     def uses_web_search(self, task: str, data: Dict[str, Any]) -> bool:
         return task == "root" and self.supports_web_search and wants_web(data)   # one search per reply, max
 
+    def uses_search_helper(self, task: str, data: Dict[str, Any]) -> bool:
+        """Groq model without browser_search: a gpt-oss helper searches, this model answers from the findings."""
+        return (task == "root" and self.web_search == "auto" and bool(self.web_search_helper)
+                and urlsplit(self.url).hostname == "api.groq.com" and self.model not in BROWSER_SEARCH_MODELS
+                and not (isinstance(data, dict) and data.get("tool_result")) and wants_web(data))
+
     def timeout_for(self, task: str, data: Dict[str, Any], default: float) -> float:
         """Gateway hook: a browser session takes longer than a plain completion."""
-        return max(default, self.web_search_timeout_s) if self.uses_web_search(task, data) else default
+        if self.uses_web_search(task, data) or self.uses_search_helper(task, data):
+            return max(default, self.web_search_timeout_s) + (default if self.uses_search_helper(task, data) else 0)
+        return default
+
+    async def _helper_search(self, request: str, timeout: float):
+        """One browser_search call on the helper model. Returns (findings, executed_tools) or (None, error)."""
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        body = {"model": self.web_search_helper, "temperature": 0, "stream": False,
+                "max_completion_tokens": self.web_search_helper_tokens,
+                "tools": [{"type": "browser_search"}], "tool_choice": "required", "reasoning_effort": "low",
+                "messages": [
+                    {"role": "system", "content": (
+                        f"Current time: {now}. You are a web research helper. Search the web for the user's request "
+                        "and report only what the sources say: exact names, numbers, dates and times, each with its "
+                        "source URL. Plain text, at most 12 short bullet points, no advice, no opinions. If the "
+                        "sources do not answer it, say exactly that.")},
+                    {"role": "user", "content": request[:2000]}]}
+        try:
+            content, tools = await asyncio.to_thread(self._post, body, timeout, True)
+        except (ModelUnavailable, ModelOutputError, OutputCapTooLarge, RateLimited, ToolUseRejected) as e:
+            return None, str(e)[:300]
+        if not tools:
+            return None, "the helper model answered without searching"
+        return content, tools
 
     async def run(
         self,
@@ -171,6 +204,22 @@ class HttpChatModel(ModelAdapter):
                 "Continue following the task's required JSON output format."
             ),
         }
+
+        helper_tools: List[Dict[str, Any]] = []
+        if self.uses_search_helper(task, data):
+            findings, extra = await self._helper_search(str(data.get("request", "")),
+                                                        max(timeout / 2, min(timeout, self.web_search_timeout_s)))
+            if findings is not None:
+                helper_tools = extra
+                print(f"[web search] {self.web_search_helper} searched {len(extra)}x for {self.model}", flush=True)
+                data = dict(data, tool_result={"version": 1, "ok": True, "error": None, "data": {
+                    "final_url": None, "status": None, "content_type": "text/plain",
+                    "title": f"Web search findings (Groq browser_search via {self.web_search_helper})",
+                    "text": findings[:6000], "chars": len(findings), "truncated": len(findings) > 6000}})
+            else:
+                print(f"[web search] helper {self.web_search_helper} failed: {extra}", flush=True)
+                data = dict(data, tool_result={"version": 1, "ok": False, "data": None, "error": {
+                    "code": "WEB_SEARCH_FAILED", "message": f"web search via {self.web_search_helper} failed: {extra}"}})
 
         messages = list(build_messages(task, data))
 
@@ -227,7 +276,7 @@ class HttpChatModel(ModelAdapter):
             except ToolUseRejected as again:
                 raise ModelOutputError(f"model kept calling a tool Bough did not offer ({again.tool})") from None
         if text_task:
-            return ModelText(content, tools)   # free-form reply; the branches inspect it, nothing parses it
+            return ModelText(content, list(tools or []) + helper_tools)   # free-form reply; the branches inspect it, nothing parses it
         return extract_json(content)
 
     def _capped(self, body: Dict[str, Any]) -> Dict[str, Any]:

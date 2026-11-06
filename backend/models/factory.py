@@ -16,5 +16,7 @@ def build_adapter(settings: Settings) -> ModelAdapter:
                                                 "root": settings.model_reply_tokens,
                                                 "repair": settings.model_reply_tokens},
                              web_search=settings.model_web_search,
-                             web_search_timeout_s=settings.model_web_search_timeout_s)
+                             web_search_timeout_s=settings.model_web_search_timeout_s,
+                             web_search_helper=settings.model_web_search_helper,
+                             web_search_helper_tokens=settings.model_web_search_helper_tokens)
     return MockModel(latency_s=settings.mock_latency_s)

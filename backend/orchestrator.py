@@ -47,6 +47,7 @@ from .schemas import Event, EventType, RawInput, SelectedAction, clip, jsonable,
 from .memory.base import Owner
 from .memory.seed import SeedStore
 from .sessions import Session, SessionManager
+from . import github_tool
 from .web_tool import WebTool
 
 DECISION_RULES = [
@@ -77,6 +78,7 @@ class Orchestrator:
         self.language = LanguageAgent(settings, self.gateway)
         self.adaptation = Adaptation(settings)
         self.web_tool = WebTool(settings)
+        self.github = github_tool.GitHubTool(settings.github_token)
         self.seeds = SeedStore(enabled=settings.seed_enabled)
         self.branches = Branches(settings.max_reply_chars)
 
@@ -166,9 +168,13 @@ class Orchestrator:
                 "chars": len(raw.data), "modality": raw.modality, "text": clip(raw.data, 300),
                 "memory_enabled": sess.memory_enabled})
             limit = self.settings.cycle_timeout_s
-            if getattr(self.adapter, "uses_web_search", None) and self.adapter.uses_web_search("root", {"request": raw}):
+            probe = {"request": raw.data if isinstance(raw.data, str) else ""}
+            if any(callable(getattr(self.adapter, n, None)) and getattr(self.adapter, n)("root", probe)
+                   for n in ("uses_web_search", "uses_search_helper")):
                 # Groq browser search: leave room for the search plus a possible repair call.
                 limit = max(limit, self.settings.model_web_search_timeout_s + 2 * self.settings.model_timeout_s + 10)
+            if self.settings.github_lookup == "auto" and github_tool.detect(probe["request"]) is not None:
+                limit += 2 * self.github.timeout_s        # repo info + one list request
             final = await asyncio.wait_for(self._pipeline(ctx, sess, raw), timeout=limit)
         except asyncio.TimeoutError:
             status, reason = "timeout", f"cycle exceeded {limit}s"
@@ -369,6 +375,13 @@ class Orchestrator:
             ctx.data["tool_result"] = self._tool_brief(tool_result)
             if not tool_result.get("ok"):
                 return await self._root_finish_template(ctx, sess, obs, sel, model_view, tool_result=tool_result)
+
+        # ---- 3b. GitHub lookup: the user named a repo and asked for its issues / PRs / releases / commits
+        if tool_result is None and s.github_lookup == "auto":
+            gh_query = github_tool.detect(obs.request)
+            if gh_query is not None:
+                tool_result = await self._run_github(ctx, sess, gh_query)
+                ctx.data["tool_result"] = self._tool_brief(tool_result)
 
         # ---- 4. ROOT: one free-form model call
         await self._activate(ctx, "root", "model answers the request freely (plain text, no schema)")
@@ -592,6 +605,31 @@ class Orchestrator:
         await self._workspace_event(ctx, sess)
         return result
 
+    async def _run_github(self, ctx: CycleContext, sess: Session, q) -> Dict[str, Any]:
+        """Read-only GitHub REST lookup; failures come back as a truthful error result, never an exception."""
+        self._current(ctx, sess)
+        await self._activate(ctx, "tool", f"GitHub API: {q.kind} of {q.full_name}")
+        ev_t = await self._emit(ctx, "tool", ET.TOOL_STARTED, {
+            "tool": "github", "url": f"https://api.github.com/repos/{q.full_name}", "lookup": q.kind,
+            "note": "The user named this repository; read-only GET requests to api.github.com."})
+        ctx.parent_id = ev_t.event_id
+        try:
+            result = await asyncio.to_thread(self.github.lookup, q)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.exception("github lookup failed")
+            result = github_tool.failed("TOOL_ERROR", f"GitHub lookup failed ({type(e).__name__})")
+        self._current(ctx, sess)
+        tool = result.get("tool", "github")
+        result = dict(self._bound_tool_result(result), tool=tool)
+        brief = self._tool_brief(result)
+        ev_d = await self._emit(ctx, "tool", ET.TOOL_DONE, brief)
+        ctx.parent_id = ev_d.event_id
+        self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
+        await self._workspace_event(ctx, sess)
+        return result
+
     @staticmethod
     def _provider_search_result(executed: List[Dict[str, Any]]):
         queries = []
@@ -632,9 +670,10 @@ class Orchestrator:
         """Event/workspace-sized summary: never the full page text."""
         if not result.get("ok"):
             err = result.get("error") or {}
-            return {"tool": "web_fetch", "ok": False, "error": {"code": err.get("code"), "message": clip(err.get("message", ""), 300)}}
+            return {"tool": result.get("tool", "web_fetch"), "ok": False,
+                    "error": {"code": err.get("code"), "message": clip(err.get("message", ""), 300)}}
         d = result["data"]
-        return {"tool": "web_fetch", "ok": True, "final_url": d.get("final_url"), "status": d.get("status"),
+        return {"tool": result.get("tool", "web_fetch"), "ok": True, "final_url": d.get("final_url"), "status": d.get("status"),
                 "content_type": d.get("content_type"), "title": clip(d.get("title") or "", 200) or None,
                 "chars": d.get("chars"), "truncated": bool(d.get("truncated")),
                 "context_truncated": bool(d.get("context_truncated")), "excerpt": clip(d.get("text", ""), 300)}

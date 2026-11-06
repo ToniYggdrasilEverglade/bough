@@ -69,6 +69,13 @@ class Settings:
     # Groq gpt-oss model, enable Groq's server-side browser_search for that reply. "off": never search.
     model_web_search: str = "auto"
     model_web_search_timeout_s: float = 60.0
+    # Groq models without browser_search (qwen, llama, ...): an explicit web request is searched by this gpt-oss
+    # model first, and the main model answers from its findings. "" = no helper (say web search is unavailable).
+    model_web_search_helper: str = "openai/gpt-oss-20b"
+    model_web_search_helper_tokens: int = 700
+    # GitHub REST lookups for "newest issue / PR / release / commit in owner/repo" questions (read-only GET).
+    github_lookup: str = "auto"            # "auto" | "off"
+    github_token: str = field(default="", repr=False)   # optional; raises the 60 requests/hour anonymous limit
     mock_latency_s: float = 0.0
     # --- web fetching (trusted server configuration only) ---
     web_fetch_enabled: bool = False
@@ -157,6 +164,10 @@ class Settings:
             raise ValueError("BOUGH_MEMORY_BACKEND=supabase needs BOUGH_AUTH_MODE=supabase (rows are per signed-in user)")
         if self.model_web_search not in ("auto", "off"):
             raise ValueError("BOUGH_MODEL_WEB_SEARCH must be 'auto' or 'off'")
+        if self.github_lookup not in ("auto", "off"):
+            raise ValueError("BOUGH_GITHUB_LOOKUP must be 'auto' or 'off'")
+        if self.model_web_search_helper_tokens < 1:
+            raise ValueError("model_web_search_helper_tokens must be >= 1")
         if self.model_web_search_timeout_s <= 0:
             raise ValueError("model_web_search_timeout_s must be > 0")
         if self.tts_backend not in ("off", "elevenlabs", "groq"):
@@ -226,6 +237,10 @@ class Settings:
             model_timeout_s=f("BOUGH_MODEL_TIMEOUT_S", d.model_timeout_s),
             model_web_search=s("BOUGH_MODEL_WEB_SEARCH", d.model_web_search).lower(),
             model_web_search_timeout_s=f("BOUGH_MODEL_WEB_SEARCH_TIMEOUT_S", d.model_web_search_timeout_s),
+            model_web_search_helper=s("BOUGH_MODEL_WEB_SEARCH_HELPER", d.model_web_search_helper).strip(),
+            model_web_search_helper_tokens=i("BOUGH_MODEL_WEB_SEARCH_HELPER_TOKENS", d.model_web_search_helper_tokens),
+            github_lookup=s("BOUGH_GITHUB_LOOKUP", d.github_lookup).lower(),
+            github_token=s("BOUGH_GITHUB_TOKEN", e.get("GITHUB_TOKEN", d.github_token)),
             web_fetch_enabled=b("BOUGH_WEB_FETCH_ENABLED", d.web_fetch_enabled),
             web_fetch_executable=s("BOUGH_WEB_FETCH_EXECUTABLE", d.web_fetch_executable),
             web_fetch_wrapper=s("BOUGH_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),
@@ -283,7 +298,7 @@ class Settings:
         out = {}
         for fld in fields(self):
             if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper",
-                            "elevenlabs_api_key", "groq_api_key"):
+                            "elevenlabs_api_key", "groq_api_key", "github_token"):
                 continue
             out[fld.name] = getattr(self, fld.name)
         out["model_url"] = redact_url(self.model_url) if self.model_backend == "http" else None
