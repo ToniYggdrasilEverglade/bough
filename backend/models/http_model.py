@@ -52,6 +52,28 @@ class ModelText(str):
         return obj
 
 
+_OTPM_TOO_LARGE = re.compile(r"Request too large.*?output tokens per minute \(OTPM\): Limit (\d+)", re.S)
+_RETRY_IN = re.compile(r"try again in (?:(\d+)m)?([\d.]+)s", re.I)
+MIN_OUTPUT_TOKENS = 128
+SHORT_WAIT_S = 8.0          # wait this long at most for a per-minute window to reopen, then retry once
+
+
+class OutputCapTooLarge(Exception):
+    """Groq 429 "Request too large ... OTPM: Limit N": max_completion_tokens alone exceeds the per-minute cap."""
+
+    def __init__(self, message: str, limit: int):
+        super().__init__(message)
+        self.limit = limit
+
+
+class RateLimited(Exception):
+    """Groq 429 "Rate limit reached ... try again in Xs": the per-minute window is used up for now."""
+
+    def __init__(self, message: str, wait_s: Optional[float]):
+        super().__init__(message)
+        self.wait_s = wait_s
+
+
 class ToolUseRejected(Exception):
     """Groq 400 tool_use_failed: the model called a tool the request did not offer."""
 
@@ -106,6 +128,9 @@ class HttpChatModel(ModelAdapter):
         self.json_mode = json_mode
         self.web_search = web_search
         self.web_search_timeout_s = web_search_timeout_s
+        # Learned from Groq "Request too large" errors (free-tier OTPM, e.g. 1000): every later request is
+        # capped below it so it is not rejected again. None = no limit seen yet.
+        self.output_cap: Optional[int] = None
         self.completion_tokens = dict(TASK_COMPLETION_TOKENS, **(completion_tokens or {}))
         self.name = f"http:{model}"
 
@@ -189,7 +214,7 @@ class HttpChatModel(ModelAdapter):
 
         text_task = task in TEXT_TASKS
         try:
-            content, tools = await asyncio.to_thread(self._post, body, timeout, text_task)
+            content, tools = await self._post_within_limits(body, timeout, text_task)
         except ToolUseRejected as first:
             # The model reached for a tool nobody offered (gpt-oss does this for "use the web"). Ask once more
             # with an explicit no-tools instruction instead of failing the whole reply.
@@ -198,12 +223,43 @@ class HttpChatModel(ModelAdapter):
             retry = dict(body, messages=messages[:insert_at + 1] + [{"role": "system", "content": NO_TOOLS_NOTE}]
                          + messages[insert_at + 1:])
             try:
-                content, tools = await asyncio.to_thread(self._post, retry, timeout, text_task)
+                content, tools = await self._post_within_limits(retry, timeout, text_task)
             except ToolUseRejected as again:
                 raise ModelOutputError(f"model kept calling a tool Bough did not offer ({again.tool})") from None
         if text_task:
             return ModelText(content, tools)   # free-form reply; the branches inspect it, nothing parses it
         return extract_json(content)
+
+    def _capped(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        if self.output_cap is None:
+            return body
+        want = body.get("max_completion_tokens") or self.output_cap
+        return dict(body, max_completion_tokens=min(want, self.output_cap))
+
+    async def _post_within_limits(self, body: Dict[str, Any], timeout: float, text_task: bool):
+        """Send, adapting to per-minute output limits (Groq free tier) instead of failing the reply."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        for attempt in range(3):
+            try:
+                return await asyncio.to_thread(self._post, self._capped(body), timeout, text_task)
+            except OutputCapTooLarge as e:
+                # Even one request at this cap is over the per-minute allowance: shrink and resend at once.
+                new_cap = max(MIN_OUTPUT_TOKENS, int(e.limit * 0.75))
+                if self.output_cap is not None and new_cap >= self.output_cap:
+                    new_cap = max(MIN_OUTPUT_TOKENS, self.output_cap // 2)
+                if attempt == 2 or (self.output_cap == MIN_OUTPUT_TOKENS):
+                    raise ModelUnavailable(str(e)) from None
+                self.output_cap = new_cap
+                print(f"[model limit] output cap lowered to {new_cap} tokens (provider limit {e.limit}/min)",
+                      flush=True)
+            except RateLimited as e:
+                left = deadline - loop.time()
+                if attempt == 2 or e.wait_s is None or e.wait_s > min(SHORT_WAIT_S, left - 1):
+                    when = f" Try again in about {int(e.wait_s + 0.999)}s." if e.wait_s else ""
+                    raise ModelUnavailable(f"provider per-minute limit reached.{when}") from None
+                await asyncio.sleep(e.wait_s + 0.25)
+        raise ModelUnavailable("provider rate limit")
 
     def _post(self, body: Dict[str, Any], timeout: float, allow_truncated: bool = False) -> str:
         headers = {
@@ -268,6 +324,19 @@ class HttpChatModel(ModelAdapter):
             )
 
             print(f"[model error] {message}", flush=True)
+            if e.code == 429:
+                big = _OTPM_TOO_LARGE.search(detail)
+                if big:
+                    raise OutputCapTooLarge(message, int(big.group(1))) from None
+                wait = None
+                ra = e.headers.get("retry-after") if e.headers else None
+                if ra and ra.replace(".", "", 1).isdigit():
+                    wait = float(ra)
+                else:
+                    m = _RETRY_IN.search(detail)
+                    if m:
+                        wait = int(m.group(1) or 0) * 60 + float(m.group(2))
+                raise RateLimited(message, wait) from None
             if e.code == 400 and provider_code == "tool_use_failed":
                 tool = "unknown tool"
                 try:

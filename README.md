@@ -132,6 +132,10 @@ Ask explicitly ("use the web to ...", "search online for ...", "look it up onlin
 
 gpt-oss models sometimes try to call a tool even when none was offered, and Groq rejects that with HTTP 400 `tool_use_failed`. Bough retries once with a "no tools" instruction instead of failing the reply, and if that also fails, the reply names the tool the model tried to call.
 
+### Groq free-tier output limits
+
+Groq's free tier caps output tokens per minute per model (for example 1,000 for `qwen/qwen3.8-27b`). If a request is rejected as "Request too large ... (OTPM): Limit N", Bough lowers its output cap to 75% of N, resends at once, and keeps that cap for later requests (the terminal prints `[model limit] output cap lowered to ...`). If the per-minute window is merely used up, Bough waits up to 8 seconds and retries once; longer waits are reported in the reply ("Try again in about 43s"). To avoid the first rejected request entirely, set `BOUGH_MODEL_PLAN_TOKENS`, `BOUGH_MODEL_REVIEW_TOKENS` and `BOUGH_MODEL_REPLY_TOKENS` below your limit.
+
 ### Groq voice and mic input
 
 Groq can handle the whole voice loop with the same key you use for the model: Whisper turns your speech into text, the Groq model answers, and Orpheus reads the reply aloud. Speech uses `GROQ_API_KEY`, or reuses `BOUGH_MODEL_API_KEY` when `BOUGH_MODEL_URL` points at `api.groq.com`.

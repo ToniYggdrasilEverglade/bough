@@ -115,3 +115,55 @@ def test_tool_call_twice_reports_real_cause(monkeypatch):
     assert r["final"]["action_kind"] == "notice"
     assert "could not be reached" not in r["final"]["text"]   # it was a tool-call problem, not an outage
     assert "kept calling a tool Bough did not offer (browser.open)" in r["final"]["text"]
+
+
+def _err429(msg, headers=None):
+    body = {"error": {"message": msg, "type": "tokens", "code": "rate_limit_exceeded"}}
+    return urllib.error.HTTPError(GROQ, 429, "Too Many Requests", headers or {}, io.BytesIO(json.dumps(body).encode()))
+
+
+TOO_LARGE = ("Request too large for model `qwen/qwen3.8-27b` in organization `org_x` service tier `on_demand` on "
+             "output tokens per minute (OTPM): Limit 1000, Requested 1033. The request's expected output tokens "
+             "exceed the enforced limit; reduce max_tokens (or the request's expected output) and try again.")
+
+
+def test_otpm_too_large_shrinks_cap_and_remembers(monkeypatch):
+    caps = []
+
+    def fake(req, timeout):
+        cap = json.loads(req.data)["max_completion_tokens"]
+        caps.append(cap)
+        if cap > 1000:
+            raise _err429(TOO_LARGE)
+        return ok("Hello!")
+
+    monkeypatch.setattr(hm.urllib.request, "urlopen", fake)
+    c = client(model="qwen/qwen3.8-27b")
+    assert chat(c, "hello")["final"]["text"] == "Hello!"
+    assert caps == [6000, 750]
+    chat(c, "hello again")
+    assert caps[2] == 750, "the learned cap is reused, no wasted request"
+
+
+def test_short_rate_limit_waits_then_retries(monkeypatch):
+    calls = []
+
+    def fake(req, timeout):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _err429("Rate limit reached for model `qwen/qwen3.8-27b` ... (OTPM): Limit 1000, Used 900, "
+                          "Requested 300. Please try again in 0.2s.")
+        return ok("Hello!")
+
+    monkeypatch.setattr(hm.urllib.request, "urlopen", fake)
+    assert chat(client(model="qwen/qwen3.8-27b"), "hello")["final"]["text"] == "Hello!"
+    assert len(calls) == 2
+
+
+def test_long_rate_limit_says_when(monkeypatch):
+    def fake(req, timeout):
+        raise _err429("Rate limit reached ... Please try again in 42.5s.")
+
+    monkeypatch.setattr(hm.urllib.request, "urlopen", fake)
+    text = chat(client(model="qwen/qwen3.8-27b"), "hello")["final"]["text"]
+    assert "per-minute limit" in text and "43s" in text
