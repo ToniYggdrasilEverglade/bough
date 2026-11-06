@@ -117,8 +117,14 @@ class LanguageAgent:
                 return ("Memory is turned off for this session, so nothing was saved. "
                         "Turn on “Persistent memory” in the header if you want me to keep this.")
             if spec.get("code") == "model_unavailable":
-                return (f"The language model could not be used for this request ({spec.get('reason', 'error')}), "
-                        "so I can only give a limited, rule-based reply and I can't answer your question yet.")
+                why = {"unavailable": "the model endpoint returned an error or could not be reached",
+                       "timeout": "the model took too long to answer",
+                       "malformed_output": "the model's reply could not be used",
+                       "budget_exceeded": "the model-call budget for this message ran out"}.get(
+                           spec.get("reason"), spec.get("reason") or "error")
+                detail = f" Details: {spec['detail']}." if spec.get("detail") else ""
+                return (f"The language model could not be used for this request ({why}), so I can only give a "
+                        f"limited, rule-based reply and I can't answer your question yet.{detail}")
             return spec.get("text", "Notice.")
         if kind == "answer_from_memory":
             pts = "; ".join(f"“{p}”" for p in spec.get("points", []))

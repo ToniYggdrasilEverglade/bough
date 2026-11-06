@@ -127,13 +127,17 @@ class ModelGateway:
             )
 
             try:
+                limit = s.model_timeout_s
+                timeout_for = getattr(self.adapter, "timeout_for", None)
+                if callable(timeout_for):            # e.g. Groq browser search needs longer than a plain answer
+                    limit = timeout_for(task, data, limit)
                 raw = await asyncio.wait_for(
                     self.adapter.run(
                         task,
                         data,
-                        timeout=s.model_timeout_s,
+                        timeout=limit,
                     ),
-                    timeout=s.model_timeout_s,
+                    timeout=limit,
                 )
                 result = validator(raw)
 
@@ -147,7 +151,7 @@ class ModelGateway:
 
             except (asyncio.TimeoutError, ModelTimeout):
                 code = "timeout"
-                detail = f"no answer within {s.model_timeout_s}s"
+                detail = f"no answer within {limit}s"
 
             except ModelUnavailable as exc:
                 code = "unavailable"

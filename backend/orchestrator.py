@@ -21,6 +21,7 @@ proposals, workspace size and retries are bounded (see Settings).
 from __future__ import annotations
 
 import asyncio
+import json
 import functools
 import logging
 from typing import Any, Dict, List, Optional
@@ -164,11 +165,15 @@ class Orchestrator:
             await self._emit(ctx, "user", ET.INPUT_RECEIVED, {
                 "chars": len(raw.data), "modality": raw.modality, "text": clip(raw.data, 300),
                 "memory_enabled": sess.memory_enabled})
-            final = await asyncio.wait_for(self._pipeline(ctx, sess, raw), timeout=self.settings.cycle_timeout_s)
+            limit = self.settings.cycle_timeout_s
+            if getattr(self.adapter, "uses_web_search", None) and self.adapter.uses_web_search("root", {"request": raw}):
+                # Groq browser search: leave room for the search plus a possible repair call.
+                limit = max(limit, self.settings.model_web_search_timeout_s + 2 * self.settings.model_timeout_s + 10)
+            final = await asyncio.wait_for(self._pipeline(ctx, sess, raw), timeout=limit)
         except asyncio.TimeoutError:
-            status, reason = "timeout", f"cycle exceeded {self.settings.cycle_timeout_s}s"
-            ctx.limits_hit.append({"limit": "cycle_timeout_s", "value": self.settings.cycle_timeout_s})
-            await self._emit(ctx, "orchestrator", ET.CYCLE_TIMEOUT, {"limit_s": self.settings.cycle_timeout_s})
+            status, reason = "timeout", f"cycle exceeded {limit}s"
+            ctx.limits_hit.append({"limit": "cycle_timeout_s", "value": limit})
+            await self._emit(ctx, "orchestrator", ET.CYCLE_TIMEOUT, {"limit_s": limit})
             final = await self._notice_final(ctx, sess, "The processing time limit was reached before a response "
                                                          "was ready. Nothing was saved from this request.")
         except asyncio.CancelledError:
@@ -380,10 +385,19 @@ class Orchestrator:
             "chars": len(draft or ""), "preview": clip(draft or "", 400), "model_calls_used": ctx.budget.used})
         ctx.parent_id = ev_r.event_id
         if draft is None:
-            sel = self._rule_action("notice", {"code": "model_unavailable", "reason": model_error},
+            sel = self._rule_action("notice", {"code": "model_unavailable", "reason": model_error,
+                                               "detail": ctx.data.get("root_model_detail", "")},
                                     "D0 model_unavailable", "root model produced no usable draft")
             return await self._root_finish_template(ctx, sess, obs, sel, model_view, tool_result=tool_result)
         self._ws(ctx, sess, "draft", "root", {"preview": clip(draft, 300), "chars": len(draft)}, 0.7)
+        if tool_result is None and getattr(draft, "executed_tools", None):
+            # The provider really searched (Groq browser_search). Record it so the grounding branch accepts an
+            # honest "I searched the web" and the trace shows what was looked up.
+            tool_result, brief = self._provider_search_result(draft.executed_tools)
+            ctx.data["tool_result"] = brief
+            ev_t = await self._emit(ctx, "tool", ET.TOOL_DONE, brief)
+            ctx.parent_id = ev_t.event_id
+            self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
 
         # ---- 5. BRANCHES: rule-based inspection (no model)
         await self._activate(ctx, "branches", "inspect the draft: constraints, completeness, directness, grounding, safety")
@@ -473,6 +487,7 @@ class Orchestrator:
             text = await self.gateway.call(ctx, task, data, lambda raw: validate_text(raw, self.settings.max_reply_chars))
             return text, None
         except ModelFailure as f:
+            ctx.data["root_model_detail"] = clip(f.detail or "", 300)
             return None, f.code
 
     @staticmethod
@@ -576,6 +591,25 @@ class Orchestrator:
         self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
         await self._workspace_event(ctx, sess)
         return result
+
+    @staticmethod
+    def _provider_search_result(executed: List[Dict[str, Any]]):
+        queries = []
+        for t in executed[:5]:
+            args = t.get("arguments")
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+            except ValueError:
+                args = {}
+            q = args.get("query") if isinstance(args, dict) else None
+            if isinstance(q, str) and q.strip():
+                queries.append(clip(q.strip(), 200))
+        result = {"version": 1, "ok": True, "error": None, "provider_search": True,
+                  "data": {"final_url": None, "status": None, "content_type": None, "title": "Groq browser search",
+                           "text": "", "chars": 0, "truncated": False, "context_truncated": False}}
+        brief = {"tool": "web_search", "ok": True, "provider": "groq browser_search",
+                 "searches": len(executed), "queries": queries}
+        return result, brief
 
     def _bound_tool_result(self, result: Any) -> Dict[str, Any]:
         """Normalise to the wrapper's envelope and cap the page text that reaches the model."""

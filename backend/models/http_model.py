@@ -8,7 +8,8 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from ..errors import ModelOutputError, ModelTimeout, ModelUnavailable
 from .base import ModelAdapter
@@ -26,6 +27,42 @@ TASK_COMPLETION_TOKENS = {
     "repair": 6000,
 }
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I)
+
+# Groq-hosted models with the server-side browser_search tool (https://console.groq.com/docs/browser-search).
+BROWSER_SEARCH_MODELS = {"openai/gpt-oss-20b", "openai/gpt-oss-120b", "openai/gpt-oss-safeguard-20b"}
+# Only an explicit request turns web search on; Bough never searches on its own initiative.
+WEB_REQUEST = re.compile(
+    r"\b(?:use|search|check|browse|look\s+(?:it\s+|this\s+|that\s+)?up\s+(?:on|in)?|google|find\s+(?:out\s+)?(?:on|from))"
+    r"\b[^.?!\n]{0,40}?\b(?:the\s+)?(?:web|internet|online|google|net)\b"
+    r"|\b(?:web|internet|online)\s+search\b|\bsearch\s+(?:the\s+)?(?:web|internet|online)\b|\bgoogle\s+it\b",
+    re.I,
+)
+NO_TOOLS_NOTE = ("No tools are available in this request: do not call any tool (no web search, browser, or code "
+                 "execution). Answer directly from your own knowledge in the required output format; if the user "
+                 "asked for live web results, say briefly that web search is unavailable here and answer anyway.")
+
+
+class ModelText(str):
+    """A text reply that also records which provider-side tools ran (e.g. Groq browser_search)."""
+    executed_tools: List[Dict[str, Any]] = []
+
+    def __new__(cls, value: str, executed_tools: Optional[List[Dict[str, Any]]] = None):
+        obj = super().__new__(cls, value)
+        obj.executed_tools = list(executed_tools or [])
+        return obj
+
+
+class ToolUseRejected(Exception):
+    """Groq 400 tool_use_failed: the model called a tool the request did not offer."""
+
+    def __init__(self, message: str, tool: str):
+        super().__init__(message)
+        self.tool = tool
+
+
+def wants_web(data: Dict[str, Any]) -> bool:
+    req = data.get("request") if isinstance(data, dict) else None
+    return isinstance(req, str) and bool(WEB_REQUEST.search(req))
 
 
 def extract_json(text: str) -> Any:
@@ -60,13 +97,29 @@ class HttpChatModel(ModelAdapter):
         api_key: str = "",
         json_mode: bool = True,
         completion_tokens: Optional[Dict[str, int]] = None,
+        web_search: str = "auto",
+        web_search_timeout_s: float = 60.0,
     ):
         self.url = url
         self.model = model
         self._api_key = api_key
         self.json_mode = json_mode
+        self.web_search = web_search
+        self.web_search_timeout_s = web_search_timeout_s
         self.completion_tokens = dict(TASK_COMPLETION_TOKENS, **(completion_tokens or {}))
         self.name = f"http:{model}"
+
+    @property
+    def supports_web_search(self) -> bool:
+        return (self.web_search == "auto" and urlsplit(self.url).hostname == "api.groq.com"
+                and self.model in BROWSER_SEARCH_MODELS)
+
+    def uses_web_search(self, task: str, data: Dict[str, Any]) -> bool:
+        return task == "root" and self.supports_web_search and wants_web(data)   # one search per reply, max
+
+    def timeout_for(self, task: str, data: Dict[str, Any], default: float) -> float:
+        """Gateway hook: a browser session takes longer than a plain completion."""
+        return max(default, self.web_search_timeout_s) if self.uses_web_search(task, data) else default
 
     async def run(
         self,
@@ -118,6 +171,14 @@ class HttpChatModel(ModelAdapter):
         if self.json_mode and task not in TEXT_TASKS:
             body["response_format"] = {"type": "json_object"}
 
+        searching = self.uses_web_search(task, data)
+        if searching:
+            # Groq runs the search server-side; the reply comes back as ordinary text plus executed_tools.
+            body["tools"] = [{"type": "browser_search"}]
+            body["tool_choice"] = "required"
+            body["reasoning_effort"] = "low"   # Groq's recommendation for browser search
+            timeout = max(timeout, self.web_search_timeout_s)
+
 
         print(
             f"[request config] model={body['model']} "
@@ -127,9 +188,21 @@ class HttpChatModel(ModelAdapter):
         )
 
         text_task = task in TEXT_TASKS
-        content = await asyncio.to_thread(self._post, body, timeout, text_task)
+        try:
+            content, tools = await asyncio.to_thread(self._post, body, timeout, text_task)
+        except ToolUseRejected as first:
+            # The model reached for a tool nobody offered (gpt-oss does this for "use the web"). Ask once more
+            # with an explicit no-tools instruction instead of failing the whole reply.
+            if "tools" in body:
+                raise ModelOutputError(str(first)) from None
+            retry = dict(body, messages=messages[:insert_at + 1] + [{"role": "system", "content": NO_TOOLS_NOTE}]
+                         + messages[insert_at + 1:])
+            try:
+                content, tools = await asyncio.to_thread(self._post, retry, timeout, text_task)
+            except ToolUseRejected as again:
+                raise ModelOutputError(f"model kept calling a tool Bough did not offer ({again.tool})") from None
         if text_task:
-            return content          # free-form reply; the branches inspect it, nothing parses it
+            return ModelText(content, tools)   # free-form reply; the branches inspect it, nothing parses it
         return extract_json(content)
 
     def _post(self, body: Dict[str, Any], timeout: float, allow_truncated: bool = False) -> str:
@@ -195,6 +268,14 @@ class HttpChatModel(ModelAdapter):
             )
 
             print(f"[model error] {message}", flush=True)
+            if e.code == 400 and provider_code == "tool_use_failed":
+                tool = "unknown tool"
+                try:
+                    fg = json.loads(error.get("failed_generation") or "{}") if isinstance(error, dict) else {}
+                    tool = str(fg.get("name") or tool)[:60]
+                except (ValueError, AttributeError):
+                    pass
+                raise ToolUseRejected(f"model tried to call a tool Bough did not offer ({tool})", tool) from None
             if e.code == 400 and (
                 provider_code == "json_validate_failed"
                 or "failed to generate json" in detail.lower()
@@ -240,4 +321,5 @@ class HttpChatModel(ModelAdapter):
             # Free-form replies keep what was produced; the branches see the cut (e.g. an unclosed fence).
             content = content.rstrip() + "\n\n[reply cut off at the completion-token limit]"
 
-        return content
+        executed = choice.get("message", {}).get("executed_tools") or []
+        return content, [t for t in executed if isinstance(t, dict)] if isinstance(executed, list) else []

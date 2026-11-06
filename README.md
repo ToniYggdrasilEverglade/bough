@@ -126,6 +126,12 @@ The defaults are chosen for the free plan:
 
 Free-plan terms: personal, non-commercial use only, with attribution. The dashboard shows a "Voice by ElevenLabs" link next to each Listen button while text-to-speech is on. ElevenLabs is retiring its default voices on December 31, 2026; after that, set `BOUGH_ELEVENLABS_VOICE_ID` to a voice from My Voices (for example one made with Voice Design).
 
+### Web search on Groq
+
+Ask explicitly ("use the web to ...", "search online for ...", "look it up online") and, when `BOUGH_MODEL_NAME` is `openai/gpt-oss-20b` or `openai/gpt-oss-120b` on Groq, Bough turns on Groq's built-in [browser search](https://console.groq.com/docs/browser-search) for that one reply. Groq runs the search on its side; Bough records the queries in the trace, and the grounding branch accepts "I searched the web" only when a search really ran. Searched replies get `BOUGH_MODEL_WEB_SEARCH_TIMEOUT_S` (default 60 s). Set `BOUGH_MODEL_WEB_SEARCH=off` to never search.
+
+gpt-oss models sometimes try to call a tool even when none was offered, and Groq rejects that with HTTP 400 `tool_use_failed`. Bough retries once with a "no tools" instruction instead of failing the reply, and if that also fails, the reply names the tool the model tried to call.
+
 ### Groq voice and mic input
 
 Groq can handle the whole voice loop with the same key you use for the model: Whisper turns your speech into text, the Groq model answers, and Orpheus reads the reply aloud. Speech uses `GROQ_API_KEY`, or reuses `BOUGH_MODEL_API_KEY` when `BOUGH_MODEL_URL` points at `api.groq.com`.

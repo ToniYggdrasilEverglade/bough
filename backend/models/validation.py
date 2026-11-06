@@ -112,9 +112,13 @@ def validate_text(raw: Any, max_text: int = 16000) -> str:
     """Free-form reply from the root model. Only control characters are scrubbed; newlines/tabs survive."""
     if not isinstance(raw, str):
         raise ModelOutputError("reply must be text")
+    tools = getattr(raw, "executed_tools", None)   # read before any str operation drops the attribute
     # Reasoning models (Qwen3 etc.) may prepend a <think>...</think> block; the user never needs it.
     raw = _THINK.sub("", raw)
     text = _CTRL.sub(" ", raw).strip()
     if not text:
         raise ModelOutputError("reply was empty")
+    if tools:   # keep the record of provider-side tools (Groq browser_search) for the grounding branch
+        from .http_model import ModelText
+        return ModelText(text[:max_text], tools)
     return text[:max_text]

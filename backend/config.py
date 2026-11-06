@@ -63,6 +63,10 @@ class Settings:
     model_reply_tokens: int = 6000
     max_reply_chars: int = 16000           # final reply clip; code answers need far more than the old 4000
     model_timeout_s: float = 20.0
+    # "auto": when the user explicitly asks for the web ("use the web", "search online", ...) and the model is a
+    # Groq gpt-oss model, enable Groq's server-side browser_search for that reply. "off": never search.
+    model_web_search: str = "auto"
+    model_web_search_timeout_s: float = 60.0
     mock_latency_s: float = 0.0
     # --- web fetching (trusted server configuration only) ---
     web_fetch_enabled: bool = False
@@ -148,6 +152,10 @@ class Settings:
                 raise ValueError("BOUGH_SUPABASE_PUBLISHABLE_KEY is required")
         if self.memory_backend == "supabase" and self.auth_mode != "supabase":
             raise ValueError("BOUGH_MEMORY_BACKEND=supabase needs BOUGH_AUTH_MODE=supabase (rows are per signed-in user)")
+        if self.model_web_search not in ("auto", "off"):
+            raise ValueError("BOUGH_MODEL_WEB_SEARCH must be 'auto' or 'off'")
+        if self.model_web_search_timeout_s <= 0:
+            raise ValueError("model_web_search_timeout_s must be > 0")
         if self.tts_backend not in ("off", "elevenlabs", "groq"):
             raise ValueError("BOUGH_TTS_BACKEND must be 'off', 'elevenlabs' or 'groq'")
         if self.stt_backend not in ("off", "groq"):
@@ -203,6 +211,8 @@ class Settings:
             model_api_key=s("BOUGH_MODEL_API_KEY", d.model_api_key),
             model_json_mode=b("BOUGH_MODEL_JSON_MODE", d.model_json_mode),
             model_timeout_s=f("BOUGH_MODEL_TIMEOUT_S", d.model_timeout_s),
+            model_web_search=s("BOUGH_MODEL_WEB_SEARCH", d.model_web_search).lower(),
+            model_web_search_timeout_s=f("BOUGH_MODEL_WEB_SEARCH_TIMEOUT_S", d.model_web_search_timeout_s),
             web_fetch_enabled=b("BOUGH_WEB_FETCH_ENABLED", d.web_fetch_enabled),
             web_fetch_executable=s("BOUGH_WEB_FETCH_EXECUTABLE", d.web_fetch_executable),
             web_fetch_wrapper=s("BOUGH_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),

@@ -206,7 +206,8 @@ function summarise(ev) {
     case "action.selected": return `${p.kind} by ${p.rule}` + (p.fixes && p.fixes.length ? `, fixes: ${p.fixes.join(", ")}` : "");
     case "memory.write": return `${p.status}` + (p.reason ? ` (${p.reason})` : "");
     case "tool.started": return `${p.tool} ${p.url}`;
-    case "tool.done": return p.ok ? `${p.tool} ok: ${p.final_url} (${p.chars} chars${p.truncated || p.context_truncated ? ", truncated" : ""})` : `${p.tool} FAILED ${p.error.code}: ${p.error.message}`;
+    case "tool.done": if (p.ok && p.tool === "web_search") return `web search ok: ${p.searches} search(es)${p.queries && p.queries.length ? ": " + p.queries.join(" | ") : ""}`;
+      return p.ok ? `${p.tool} ok: ${p.final_url} (${p.chars} chars${p.truncated || p.context_truncated ? ", truncated" : ""})` : `${p.tool} FAILED ${p.error.code}: ${p.error.message}`;
     case "language.done": return `rendered by ${p.method}` + (p.post_checks.length ? `, checks: ${p.post_checks.join(", ")}` : "");
     case "response.final": return `final ${p.action_kind} reply`;
     case "cycle.cancelled": return `cancelled: ${p.reason}`;
