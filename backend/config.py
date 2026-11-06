@@ -78,6 +78,20 @@ class Settings:
     github_lookup: str = "auto"            # "auto" | "off"
     # Fetch a URL the user pasted into a normal message (not only /fetch), when its host is allowlisted.
     web_fetch_auto: bool = True
+    # --- code sandbox (opt-in): explicit "run this code" requests run in a throwaway container ---
+    sandbox_backend: str = "off"           # "off" | "docker"
+    sandbox_runtime: str = "runsc"         # gVisor; "" = Docker's default runc (much weaker isolation)
+    sandbox_docker: str = "docker"
+    sandbox_languages: tuple[str, ...] = ("python", "javascript", "bash")
+    sandbox_python_image: str = "python:3.12-slim"
+    sandbox_node_image: str = "node:22-slim"
+    sandbox_timeout_s: float = 10.0
+    sandbox_memory_mb: int = 256
+    sandbox_cpus: float = 1.0
+    sandbox_output_chars: int = 2500       # per stream; stdout+stderr must fit BOUGH_WEB_FETCH_CONTEXT_CHARS
+    sandbox_runs_per_hour: int = 30        # per signed-in user
+    sandbox_concurrency: int = 2           # containers at once, all users together
+    sandbox_allow_anonymous: bool = False  # True = also when auth is off (anyone who can reach the site)
     mock_latency_s: float = 0.0
     # --- web fetching (trusted server configuration only) ---
     web_fetch_enabled: bool = False
@@ -166,6 +180,16 @@ class Settings:
             raise ValueError("BOUGH_MEMORY_BACKEND=supabase needs BOUGH_AUTH_MODE=supabase (rows are per signed-in user)")
         if self.model_web_search not in ("auto", "off"):
             raise ValueError("BOUGH_MODEL_WEB_SEARCH must be 'auto' or 'off'")
+        if self.sandbox_backend not in ("off", "docker"):
+            raise ValueError("BOUGH_SANDBOX_BACKEND must be 'off' or 'docker'")
+        for name in ("sandbox_memory_mb", "sandbox_output_chars", "sandbox_runs_per_hour", "sandbox_concurrency"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be >= 1")
+        if not (0 < self.sandbox_timeout_s <= 120) or not (0 < self.sandbox_cpus <= 8):
+            raise ValueError("sandbox_timeout_s must be in (0, 120] and sandbox_cpus in (0, 8]")
+        bad = [x for x in self.sandbox_languages if x not in ("python", "javascript", "bash")]
+        if bad:
+            raise ValueError(f"BOUGH_SANDBOX_LANGUAGES: unsupported {bad}; use python, javascript, bash")
         if self.github_lookup not in ("auto", "off"):
             raise ValueError("BOUGH_GITHUB_LOOKUP must be 'auto' or 'off'")
         if self.model_web_search_helper_tokens < 1:
@@ -243,6 +267,20 @@ class Settings:
             model_web_search_helper_tokens=i("BOUGH_MODEL_WEB_SEARCH_HELPER_TOKENS", d.model_web_search_helper_tokens),
             github_lookup=s("BOUGH_GITHUB_LOOKUP", d.github_lookup).lower(),
             web_fetch_auto=b("BOUGH_WEB_FETCH_AUTO", d.web_fetch_auto),
+            sandbox_backend=s("BOUGH_SANDBOX_BACKEND", d.sandbox_backend).lower(),
+            sandbox_runtime=s("BOUGH_SANDBOX_RUNTIME", d.sandbox_runtime).strip(),
+            sandbox_docker=s("BOUGH_SANDBOX_DOCKER", d.sandbox_docker),
+            sandbox_languages=tuple(x.strip().lower() for x in s("BOUGH_SANDBOX_LANGUAGES",
+                                                                 ",".join(d.sandbox_languages)).split(",") if x.strip()),
+            sandbox_python_image=s("BOUGH_SANDBOX_PYTHON_IMAGE", d.sandbox_python_image),
+            sandbox_node_image=s("BOUGH_SANDBOX_NODE_IMAGE", d.sandbox_node_image),
+            sandbox_timeout_s=f("BOUGH_SANDBOX_TIMEOUT_S", d.sandbox_timeout_s),
+            sandbox_memory_mb=i("BOUGH_SANDBOX_MEMORY_MB", d.sandbox_memory_mb),
+            sandbox_cpus=f("BOUGH_SANDBOX_CPUS", d.sandbox_cpus),
+            sandbox_output_chars=i("BOUGH_SANDBOX_OUTPUT_CHARS", d.sandbox_output_chars),
+            sandbox_runs_per_hour=i("BOUGH_SANDBOX_RUNS_PER_HOUR", d.sandbox_runs_per_hour),
+            sandbox_concurrency=i("BOUGH_SANDBOX_CONCURRENCY", d.sandbox_concurrency),
+            sandbox_allow_anonymous=b("BOUGH_SANDBOX_ALLOW_ANONYMOUS", d.sandbox_allow_anonymous),
             web_fetch_enabled=b("BOUGH_WEB_FETCH_ENABLED", d.web_fetch_enabled),
             web_fetch_executable=s("BOUGH_WEB_FETCH_EXECUTABLE", d.web_fetch_executable),
             web_fetch_wrapper=s("BOUGH_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),
@@ -300,7 +338,7 @@ class Settings:
         out = {}
         for fld in fields(self):
             if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper",
-                            "elevenlabs_api_key", "groq_api_key"):
+                            "elevenlabs_api_key", "groq_api_key", "sandbox_docker"):
                 continue
             out[fld.name] = getattr(self, fld.name)
         out["model_url"] = redact_url(self.model_url) if self.model_backend == "http" else None

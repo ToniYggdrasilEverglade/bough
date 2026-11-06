@@ -164,6 +164,28 @@ The web-fetch integration is disabled by default. Build the Rust CLI in `tools/w
 
 With web fetch on, a URL pasted into an ordinary message is fetched too (not only `/fetch <url>`), when its host is allowlisted; `BOUGH_WEB_FETCH_AUTO=false` limits fetching to `/fetch`. The tool accepts `text/html`, `text/plain` and `application/json`. Example allowlist: `BOUGH_WEB_FETCH_ALLOWED_HOSTS=api.github.com,en.wikipedia.org,docs.python.org`. Rebuild after pulling changes to the tool: `cd tools/web_fetch && cargo build --release`.
 
+### Code sandbox
+
+Off by default. With `BOUGH_SANDBOX_BACKEND=docker`, an explicit request such as "run this code", "what does this print?" or "use python to ..." runs code in a throwaway container: the user's own fenced block as written, or otherwise the block the model writes for the request, after which the model answers from the real stdout/stderr/exit code. Python, JavaScript (Node) and sh are supported (`BOUGH_SANDBOX_LANGUAGES`).
+
+Each run is a fresh `docker run --rm` under gVisor (`runsc`, a user-space kernel between the code and the host), with no network, a read-only root filesystem, 32 MB tmpfs for `/work` and `/tmp`, user `nobody`, all capabilities dropped, `no-new-privileges`, 64 processes, `BOUGH_SANDBOX_MEMORY_MB` (256), `BOUGH_SANDBOX_CPUS` (1), `BOUGH_SANDBOX_TIMEOUT_S` (10 s) and `BOUGH_SANDBOX_OUTPUT_CHARS` (2500 per stream; floods are stopped at once). Images are never pulled at run time. Only signed-in users (Supabase auth) may run code, `BOUGH_SANDBOX_RUNS_PER_HOUR` (30) each, `BOUGH_SANDBOX_CONCURRENCY` (2) containers at a time in total. `BOUGH_SANDBOX_ALLOW_ANONYMOUS=true` lifts the sign-in rule; do not use it on a public site.
+
+Setup on Debian/Kali:
+
+```sh
+sudo apt install -y docker.io && sudo systemctl enable --now docker
+curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+sudo apt update && sudo apt install -y runsc
+sudo runsc install && sudo systemctl restart docker
+sudo docker pull python:3.12-slim && sudo docker pull node:22-slim
+sudo docker run --rm --runtime runsc python:3.12-slim uname -r    # prints a "-gvisor" kernel
+```
+
+Bough needs access to the Docker daemon. Membership in the `docker` group is equivalent to root on that machine, so run Bough as a dedicated user rather than your own account (`sudo useradd -r -m bough && sudo usermod -aG docker bough`), or point `BOUGH_SANDBOX_DOCKER` at a small script that runs `sudo docker` with a sudoers rule limited to that script. Running strangers' code on a personal machine that also holds your files and keys carries risk even with gVisor; a separate VM or machine for Bough is the safer production setup.
+
+Real-container test: `BOUGH_TEST_DOCKER=docker python -m pytest tests/test_sandbox.py`.
+
 ## Project layout
 
 ```text

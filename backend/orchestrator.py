@@ -49,6 +49,7 @@ from .memory.seed import SeedStore
 from .sessions import Session, SessionManager
 from . import github_tool
 from .web_tool import WebTool, find_allowlisted_url
+from . import sandbox as sandbox_mod
 
 DECISION_RULES = [
     "R0 rule-only paths: explicit 'remember ...' saves and /fetch run without asking the model to decide.",
@@ -79,6 +80,7 @@ class Orchestrator:
         self.adaptation = Adaptation(settings)
         self.web_tool = WebTool(settings)
         self.github = github_tool.GitHubTool(self.web_tool.fetch)
+        self.sandbox = sandbox_mod.Sandbox(settings)
         self.seeds = SeedStore(enabled=settings.seed_enabled)
         self.branches = Branches(settings.max_reply_chars)
 
@@ -173,6 +175,8 @@ class Orchestrator:
                    for n in ("uses_web_search", "uses_search_helper")):
                 # Groq browser search: leave room for the search plus a possible repair call.
                 limit = max(limit, self.settings.model_web_search_timeout_s + 2 * self.settings.model_timeout_s + 10)
+            if self.sandbox.enabled and sandbox_mod.wants_run(probe["request"]):
+                limit += self.settings.sandbox_timeout_s + self.settings.model_timeout_s + 15   # run + second answer
             if self.settings.github_lookup == "auto" and github_tool.detect(probe["request"]) is not None:
                 limit += 45.0             # repo info + list (+ one smaller retry), each a web_fetch run
             final = await asyncio.wait_for(self._pipeline(ctx, sess, raw), timeout=limit)
@@ -392,14 +396,46 @@ class Orchestrator:
                 tool_result = await self._run_web_fetch(ctx, sess, sel, note="URL pasted in the user's message")
                 ctx.data["tool_result"] = self._tool_brief(tool_result)
 
+        # ---- 3d. code sandbox: only on an explicit "run this" request
+        run_requested = (tool_result is None and self.sandbox.enabled and sandbox_mod.wants_run(obs.request))
+        ran_code: Optional[Dict[str, str]] = None
+        if run_requested:
+            user_block = sandbox_mod.first_runnable_block(obs.raw_text, self.sandbox.languages)   # raw: keeps newlines
+            if user_block is not None:                  # the user's own code: run it as written
+                tool_result = await self._run_sandbox(ctx, sess, *user_block, source="user")
+                ran_code = {"language": user_block[0], "code": user_block[1], "source": "user"}
+                ctx.data["tool_result"] = self._tool_brief(tool_result)
+                run_requested = False
+
         # ---- 4. ROOT: one free-form model call
         await self._activate(ctx, "root", "model answers the request freely (plain text, no schema)")
         extra = {"tool_result": tool_result} if tool_result is not None else {}
         if fetch_question:
             extra["request"] = fetch_question
+        if ran_code:
+            extra["ran_code"] = ran_code
+        if run_requested:
+            extra["code_runner"] = {"languages": list(self.sandbox.languages),
+                                    "limits": {"timeout_s": s.sandbox_timeout_s, "memory_mb": s.sandbox_memory_mb,
+                                               "network": "none"}}
         view = model_view("language", **extra)
         draft, model_error = await self._root_call(ctx, "root", view)
         self._current(ctx, sess)
+        if run_requested and draft is not None and ctx.budget.remaining > 0:
+            block = sandbox_mod.first_runnable_block(draft, self.sandbox.languages)
+            if block is not None:                       # the model wrote code for the request: run it, then answer
+                tool_result = await self._run_sandbox(ctx, sess, *block, source="model")
+                ctx.data["tool_result"] = self._tool_brief(tool_result)
+                ran_code = {"language": block[0], "code": block[1], "source": "model"}
+                view = dict(view, tool_result=tool_result, ran_code=ran_code)
+                view.pop("code_runner", None)
+                await self._activate(ctx, "root", "model answers from the sandbox output")
+                second, err2 = await self._root_call(ctx, "root", view)
+                self._current(ctx, sess)
+                if second is not None:
+                    draft = second
+                else:
+                    model_error = err2
         ctx.data["root"] = {"method": "model" if draft is not None else "unavailable", "model_error": model_error,
                             "chars": len(draft or ""), "rounds": 1}
         ev_r = await self._emit(ctx, "root", ET.ROOT_DONE, {
@@ -609,6 +645,43 @@ class Orchestrator:
         self._current(ctx, sess)
         result = self._bound_tool_result(result)
         brief = self._tool_brief(result)
+        ev_d = await self._emit(ctx, "tool", ET.TOOL_DONE, brief)
+        ctx.parent_id = ev_d.event_id
+        self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
+        await self._workspace_event(ctx, sess)
+        return result
+
+    def _sandbox_user(self, sess: Session) -> Optional[str]:
+        """Rate-limit key of a user allowed to run code, or None. Signed-in users only, unless anonymous is allowed."""
+        if self.settings.auth_mode == "supabase" and sess.owner.user_id != "local":
+            return sess.owner.user_id
+        return "anonymous" if self.settings.sandbox_allow_anonymous else None
+
+    async def _run_sandbox(self, ctx: CycleContext, sess: Session, language: str, code: str,
+                           source: str) -> Dict[str, Any]:
+        self._current(ctx, sess)                      # a stale cycle must not start containers
+        await self._activate(ctx, "tool", f"run {source} {language} code in the sandbox")
+        ev_t = await self._emit(ctx, "tool", ET.TOOL_STARTED, {
+            "tool": "sandbox", "language": language, "source": source, "chars": len(code),
+            "note": "Explicit run request; isolated container, no network."})
+        ctx.parent_id = ev_t.event_id
+        user = self._sandbox_user(sess)
+        if user is None:
+            result = sandbox_mod.failed("SIGN_IN_REQUIRED", "Running code needs a signed-in account on this server.")
+        else:
+            try:
+                result = await self.sandbox.run(user, language, code)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.exception("sandbox run failed")
+                result = sandbox_mod.failed("TOOL_ERROR", f"sandbox failed ({type(e).__name__})")
+        self._current(ctx, sess)
+        run = result.get("run")
+        result = dict(self._bound_tool_result(result), tool="sandbox")
+        brief = self._tool_brief(result)
+        if run:
+            brief.update(run)
         ev_d = await self._emit(ctx, "tool", ET.TOOL_DONE, brief)
         ctx.parent_id = ev_d.event_id
         self._ws(ctx, sess, "tool_result", "tool", brief, 0.85)
