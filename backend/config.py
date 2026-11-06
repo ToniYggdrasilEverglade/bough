@@ -1,6 +1,6 @@
 """Configuration. Everything comes from environment variables (optionally a .env file).
 
-Secrets (the model API key) live only here and in the HTTP adapter. `public_dict()` is the only
+Secrets (the model and ElevenLabs API keys) live only here and in the HTTP adapter. `public_dict()` is the only
 representation that is ever sent to the browser, and it never contains the key.
 """
 from __future__ import annotations
@@ -15,6 +15,9 @@ except ImportError:  # pragma: no cover
     load_dotenv = None
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# ElevenLabs output formats the free plan cannot use (MP3 192 kbps: Creator+; 44.1 kHz PCM/WAV: Pro+).
+# Set BOUGH_ELEVENLABS_ALLOW_PAID_FORMATS=true if you upgrade.
+PAID_ONLY_FORMATS = {"mp3_44100_192", "pcm_44100", "wav_44100", "pcm_48000", "wav_48000"}
 
 
 def redact_url(url: str) -> str:
@@ -67,6 +70,16 @@ class Settings:
     web_fetch_wrapper: str = field(default="", repr=False)
     web_fetch_allowed_hosts: tuple[str, ...] = ()
     web_fetch_context_chars: int = 6000    # page text handed to the language model (the CLI returns up to 64 KiB)
+    # --- text-to-speech (optional; ElevenLabs) ---
+    tts_backend: str = "off"               # "off" | "elevenlabs"
+    elevenlabs_api_key: str = field(default="", repr=False)  # SECRET: never exposed, not even in repr()
+    # Defaults are chosen for the ElevenLabs FREE plan (10,000 credits/month, non-commercial, attribution):
+    elevenlabs_voice_id: str = "JBFqnCBsd6RMkjVDRZzb"       # "George", a default voice (free tier OK; retired 2026-12-31)
+    elevenlabs_model_id: str = "eleven_flash_v2_5"          # 0.5 credit/char -> ~20,000 chars/month on free
+    elevenlabs_output_format: str = "mp3_44100_128"         # highest format on free (192 kbps / 44.1 kHz PCM are paid)
+    elevenlabs_allow_paid_formats: bool = False  # set true after upgrading to use 192 kbps MP3 / 44.1 kHz PCM
+    tts_max_chars: int = 1000              # per reply; longer replies are clipped (ElevenLabs bills per character)
+    tts_timeout_s: float = 30.0
     # --- limits ---
     max_model_calls: int = 3               # per cycle, retries included
     cycle_timeout_s: float = 30.0
@@ -127,6 +140,16 @@ class Settings:
                 raise ValueError("BOUGH_SUPABASE_PUBLISHABLE_KEY is required")
         if self.memory_backend == "supabase" and self.auth_mode != "supabase":
             raise ValueError("BOUGH_MEMORY_BACKEND=supabase needs BOUGH_AUTH_MODE=supabase (rows are per signed-in user)")
+        if self.tts_backend not in ("off", "elevenlabs"):
+            raise ValueError("BOUGH_TTS_BACKEND must be 'off' or 'elevenlabs'")
+        if self.tts_backend == "elevenlabs" and not self.elevenlabs_api_key:
+            raise ValueError("BOUGH_TTS_BACKEND=elevenlabs needs ELEVENLABS_API_KEY")
+        if not (1 <= self.tts_max_chars <= 10000):
+            raise ValueError("tts_max_chars must be between 1 and 10000")
+        if self.elevenlabs_output_format in PAID_ONLY_FORMATS and not self.elevenlabs_allow_paid_formats:
+            raise ValueError(f"{self.elevenlabs_output_format} needs a paid ElevenLabs plan; use mp3_44100_128")
+        if self.tts_timeout_s <= 0:
+            raise ValueError("tts_timeout_s must be > 0")
         if self.jwks_cache_s <= 0:
             raise ValueError("jwks_cache_s must be > 0")
 
@@ -171,6 +194,14 @@ class Settings:
             web_fetch_wrapper=s("BOUGH_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),
             web_fetch_allowed_hosts=tuple(x.strip() for x in s("BOUGH_WEB_FETCH_ALLOWED_HOSTS", "").split(",") if x.strip()),
             web_fetch_context_chars=i("BOUGH_WEB_FETCH_CONTEXT_CHARS", d.web_fetch_context_chars),
+            tts_backend=s("BOUGH_TTS_BACKEND", d.tts_backend).lower(),
+            elevenlabs_api_key=s("ELEVENLABS_API_KEY", d.elevenlabs_api_key),
+            elevenlabs_voice_id=s("BOUGH_ELEVENLABS_VOICE_ID", d.elevenlabs_voice_id),
+            elevenlabs_model_id=s("BOUGH_ELEVENLABS_MODEL_ID", d.elevenlabs_model_id),
+            elevenlabs_output_format=s("BOUGH_ELEVENLABS_OUTPUT_FORMAT", d.elevenlabs_output_format),
+            elevenlabs_allow_paid_formats=b("BOUGH_ELEVENLABS_ALLOW_PAID_FORMATS", d.elevenlabs_allow_paid_formats),
+            tts_max_chars=i("BOUGH_TTS_MAX_CHARS", d.tts_max_chars),
+            tts_timeout_s=f("BOUGH_TTS_TIMEOUT_S", d.tts_timeout_s),
             mock_latency_s=f("BOUGH_MOCK_LATENCY_S", d.mock_latency_s),
             max_model_calls=i("BOUGH_MAX_MODEL_CALLS", d.max_model_calls),
             cycle_timeout_s=f("BOUGH_CYCLE_TIMEOUT_S", d.cycle_timeout_s),
@@ -201,9 +232,11 @@ class Settings:
         """The ONLY settings view that may reach the browser. No secrets, no credentials in URLs."""
         out = {}
         for fld in fields(self):
-            if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper"):
+            if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper",
+                            "elevenlabs_api_key"):
                 continue
             out[fld.name] = getattr(self, fld.name)
         out["model_url"] = redact_url(self.model_url) if self.model_backend == "http" else None
         out["model_api_key_configured"] = bool(self.model_api_key)
+        out["elevenlabs_api_key_configured"] = bool(self.elevenlabs_api_key)
         return out

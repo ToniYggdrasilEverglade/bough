@@ -28,6 +28,10 @@ class AuthRequired(BoughError):
     """The request carried no usable credential (missing, malformed, expired or wrong-audience token)."""
 
 
+class TTSUnavailable(BoughError):
+    """The text-to-speech provider could not produce audio (disabled, bad key, quota, network, timeout)."""
+
+
 class ModelError(BoughError):
     """Base class for model-adapter problems."""
 

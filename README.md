@@ -11,6 +11,7 @@ An experimental AI application with a Python/FastAPI backend, a browser dashboar
 - Optional Supabase authentication with user-scoped sessions and memory.
 - Configurable root and proposal pipelines, model-call budgets, timeouts, and response limits.
 - Optional read-only knowledge seeds and an allowlisted web-fetch integration.
+- Optional text-to-speech for replies through the ElevenLabs API, set up for the free plan.
 
 ## Quick start
 
@@ -101,6 +102,29 @@ With authentication enabled, API requests require a bearer token except for `GET
 {"type": "auth", "token": "<supabase-access-token>"}
 ```
 
+### Optional text-to-speech (ElevenLabs free plan)
+
+Replies get a **Listen** button that reads them aloud with [ElevenLabs](https://elevenlabs.io/text-to-speech-api). The backend calls ElevenLabs, so the API key never reaches the browser. Code blocks are skipped rather than read aloud.
+
+1. Create a free account and an API key at https://elevenlabs.io/app/settings/api-keys (the Text to Speech permission is enough).
+2. Add to `.env` and restart Bough:
+
+```dotenv
+BOUGH_TTS_BACKEND=elevenlabs
+ELEVENLABS_API_KEY=your-elevenlabs-key
+```
+
+The defaults are chosen for the free plan:
+
+| Setting | Default | Why |
+| --- | --- | --- |
+| `BOUGH_ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | Half the credits per character, so the 10,000 monthly free credits cover about 20,000 characters |
+| `BOUGH_ELEVENLABS_OUTPUT_FORMAT` | `mp3_44100_128` | Best format on free; 192 kbps MP3 and 44.1 kHz PCM/WAV need a paid plan and are refused unless `BOUGH_ELEVENLABS_ALLOW_PAID_FORMATS=true` |
+| `BOUGH_ELEVENLABS_VOICE_ID` | `JBFqnCBsd6RMkjVDRZzb` | A default voice; free API users cannot use Voice Library voices (HTTP 402 `paid_plan_required`) |
+| `BOUGH_TTS_MAX_CHARS` | `1000` | Caps credits spent per reply; longer replies are clipped |
+
+Free-plan terms: personal, non-commercial use only, with attribution. The dashboard shows a "Voice by ElevenLabs" link next to each Listen button while text-to-speech is on. ElevenLabs is retiring its default voices on December 31, 2026; after that, set `BOUGH_ELEVENLABS_VOICE_ID` to a voice from My Voices (for example one made with Voice Design).
+
 ### Optional web fetch
 
 The web-fetch integration is disabled by default. Build the Rust CLI in `tools/web_fetch` with `cargo build --release`, then configure the executable and wrapper using absolute paths in `.env`. Set `BOUGH_WEB_FETCH_ALLOWED_HOSTS` explicitly before enabling `BOUGH_WEB_FETCH_ENABLED`. See `.env.example` for the relevant settings.
@@ -130,10 +154,13 @@ requirements-dev.txt  Development dependencies
 - `GET /api/memories`, `POST /api/memories`, `DELETE /api/memories/{mid}` — manage memory.
 - `GET /api/adaptation` — inspect stored adaptation values.
 - `GET /api/me` — inspect authentication identity.
+- `POST /api/tts` — read text aloud with ElevenLabs (JSON `text`, optional `voice_id`); returns audio. Needs `BOUGH_TTS_BACKEND=elevenlabs`.
 - `WS /ws/{client_sid}` — chat and backend events over WebSocket.
 
 ## Safety and limitations
 
 This is a prototype. Keep the default loopback binding for local development, especially when authentication is off. Do not expose an unauthenticated instance to a network. The launcher refuses non-loopback binding unless explicitly overridden; that override is not a production deployment configuration.
+
+Text-to-speech sends the reply text (not your memories) to ElevenLabs when you press Listen.
 
 HTTP model mode sends request context to the configured model endpoint. Use a provider and storage configuration appropriate for your data, and keep credentials out of version control.

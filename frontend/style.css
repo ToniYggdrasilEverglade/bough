@@ -136,3 +136,5 @@ select { width: auto; }
 .auth-card input { font: inherit; padding: .45rem .6rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); }
 .auth-card .ok { color: var(--moss); }
 body.locked .layout, body.locked .rail { display: none; }
+.msg .meta a.attrib { color: var(--graphite); font-size: .72rem; text-decoration: none; }
+.msg .meta a.attrib:hover { text-decoration: underline; }

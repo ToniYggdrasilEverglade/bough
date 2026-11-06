@@ -348,6 +348,12 @@ function onResult(r) {
     meta.append(tag(res.error ? res.error : `bias ${res.bias_before} → ${res.bias_after}` + (res.persisted ? " (saved)" : " (session only)"), res.error ? "bad" : "ok"));
   }, class: "ghost fb", text: rating === "useful" ? "Useful" : "Not useful" });
   meta.append(rate("useful"), rate("not_useful"));
+  if (S.config && S.config.tts && S.config.tts.enabled) {
+    meta.append(listenButton(r.final.text));
+    // ElevenLabs' free plan requires attribution wherever its audio is used.
+    meta.append(el("a", { class: "attrib", href: S.config.tts.attribution_url, target: "_blank", rel: "noopener noreferrer",
+                          text: S.config.tts.attribution }));
+  }
   if (S.memoryEnabled) meta.append(el("button", { class: "link", text: "Save summary", onclick: async (ev) => {
     const res = await api("POST", `/api/sessions/${sid}/cycles/${r.cycle_id}/save-summary`);
     ev.target.replaceWith(tag(res.error ? res.error : "summary saved", res.error ? "bad" : "ok")); loadMemories();
@@ -364,6 +370,40 @@ async function api(method, path, body) {
     if (res.status === 401 && Auth.required) { Auth.save(null); showAuth("Signed out: " + ((await res.json().catch(() => ({}))).error || "sign in again")); }
     return await res.json();
   } catch (e) { return { error: "request failed" }; }
+}
+
+// ------------------------------------------------------------------ text-to-speech (ElevenLabs via the backend)
+// The backend holds the API key; the browser only ever receives audio. One reply plays at a time.
+const Speech = { audio: null, url: null, button: null };
+function stopSpeech() {
+  if (Speech.audio) { Speech.audio.pause(); Speech.audio = null; }
+  if (Speech.url) { URL.revokeObjectURL(Speech.url); Speech.url = null; }
+  if (Speech.button) { Speech.button.textContent = "Listen"; Speech.button.disabled = false; Speech.button = null; }
+}
+function listenButton(text) {
+  const btn = el("button", { class: "ghost", text: "Listen", "aria-label": "Read this reply aloud" });
+  btn.addEventListener("click", async () => {
+    if (Speech.button === btn) { stopSpeech(); return; }
+    stopSpeech();
+    Speech.button = btn; btn.textContent = "Loading…"; btn.disabled = true;
+    try {
+      const headers = { "Content-Type": "application/json" };
+      const token = await Auth.token();
+      if (token) headers.Authorization = "Bearer " + token;
+      const res = await fetch("/api/tts", { method: "POST", headers, body: JSON.stringify({ text }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      if (Speech.button !== btn) return;  // another reply was started meanwhile
+      Speech.url = URL.createObjectURL(await res.blob());
+      Speech.audio = new Audio(Speech.url);
+      Speech.audio.addEventListener("ended", stopSpeech);
+      btn.textContent = "Stop"; btn.disabled = false;
+      await Speech.audio.play();
+    } catch (e) {
+      if (Speech.button === btn) stopSpeech();
+      $("#form-error").textContent = "Text-to-speech: " + e.message;
+    }
+  });
+  return btn;
 }
 
 // ------------------------------------------------------------------ memory manager

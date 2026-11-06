@@ -15,17 +15,19 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .auth import Authenticator, Principal
 from .config import LOOPBACK_HOSTS, Settings
-from .errors import AuthRequired, BoughError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound
+from .errors import (AuthRequired, BoughError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound,
+                     TTSUnavailable)
 from .memory import MemoryBackend, build_store
 from .models.base import ModelAdapter
 from .models.factory import build_adapter
 from .orchestrator import Orchestrator
+from .tts import ElevenLabsTTS, build_tts
 
 log = logging.getLogger("bough.app")
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -42,6 +44,11 @@ class SettingsBody(BaseModel):
 class FeedbackBody(BaseModel):
     cycle_id: str = Field(..., max_length=64)
     rating: str = Field(..., max_length=16)
+
+
+class TTSBody(BaseModel):
+    text: str = Field(..., max_length=20000)
+    voice_id: Optional[str] = Field(None, max_length=64)
 
 
 class MemoryBody(BaseModel):
@@ -77,12 +84,14 @@ def _origin_allowed(origin: Optional[str]) -> bool:
 
 
 def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapter] = None,
-               store: Optional[MemoryBackend] = None, authenticator: Optional[Authenticator] = None) -> FastAPI:
+               store: Optional[MemoryBackend] = None, authenticator: Optional[Authenticator] = None,
+               tts: Optional[ElevenLabsTTS] = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or build_store(settings)
     adapter = adapter or build_adapter(settings)
     auth = authenticator or Authenticator(settings)
     orch = Orchestrator(settings, store, adapter)
+    tts = tts or build_tts(settings)
     if auth.required:
         log.info("auth: supabase (%s); memory backend: %s", settings.supabase_url, store.name)
     else:
@@ -96,11 +105,12 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
     app = FastAPI(title="Bough prototype", lifespan=lifespan)
     app.state.orch = orch
     app.state.auth = auth
+    app.state.tts = tts
 
     @app.exception_handler(BoughError)
     async def bough_error(_, exc: BoughError):
         code = (401 if isinstance(exc, AuthRequired) else 404 if isinstance(exc, NotFound)
-                else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, MemoryUnavailable) else 400)
+                else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, (MemoryUnavailable, TTSUnavailable)) else 400)
         headers = {"WWW-Authenticate": "Bearer"} if code == 401 else None
         return JSONResponse({"error": str(exc)}, status_code=code, headers=headers)
 
@@ -111,9 +121,12 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
         return orch.bind(auth.owner_of(principal), sid, create=create)
 
     # ------------------------------------------------------------------ REST
+    def describe() -> dict:
+        return {**orch.describe(), "tts": tts.describe() if tts else {"enabled": False}}
+
     @app.get("/api/config")
     async def get_config():
-        return orch.describe()
+        return describe()
 
     @app.get("/api/sessions/{sid}")
     async def get_session(sid: str, user: Optional[Principal] = Depends(current_user)):
@@ -160,6 +173,14 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
         return {"bias": await asyncio.to_thread(store.get_all_bias, auth.owner_of(user)),
                 "limit": settings.bias_limit, "step": settings.bias_step,
                 "explanation": orch.describe()["adaptation"]}
+
+    @app.post("/api/tts")
+    async def text_to_speech(body: TTSBody, user: Optional[Principal] = Depends(current_user)):
+        """Read a reply aloud with ElevenLabs. Same auth as every other /api route; the key stays here."""
+        if tts is None:
+            raise TTSUnavailable("text-to-speech is off (set BOUGH_TTS_BACKEND=elevenlabs and ELEVENLABS_API_KEY)")
+        audio = await tts.synthesize(body.text, body.voice_id)
+        return Response(audio, media_type=tts.media_type, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/me")
     async def me(user: Optional[Principal] = Depends(current_user)):
@@ -221,7 +242,7 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
                 pass
 
         try:
-            await send({"type": "hello", "state": orch.session_state(sid), "config": orch.describe(),
+            await send({"type": "hello", "state": orch.session_state(sid), "config": describe(),
                         "user": {"user_id": principal.user_id, "email": principal.email} if principal else None})
             while True:
                 msg = await websocket.receive_json()
