@@ -2,8 +2,28 @@
 from __future__ import annotations
 import asyncio
 import importlib.util
+import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
+
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"'`)\]]+", re.I)
+
+
+def find_allowlisted_url(text, allowed_hosts):
+    """First http(s) URL in a message whose host is allowlisted, else None (never guesses a URL)."""
+    if not isinstance(text, str) or not allowed_hosts:
+        return None
+    allowed = {h.strip().lower().rstrip(".") for h in allowed_hosts}
+    for m in _URL_IN_TEXT.finditer(text):
+        url = m.group(0).rstrip(".,;:!?")
+        try:
+            host = (urlsplit(url).hostname or "").rstrip(".")
+        except ValueError:
+            continue
+        if host in allowed:
+            return url
+    return None
 
 
 def failed(code, message):

@@ -134,9 +134,7 @@ Other Groq models (for example `qwen/qwen3.8-27b` or the Llama models) have no b
 
 ### GitHub lookups
 
-Questions that name a repository (`github.com/owner/repo`, or `owner/repo` together with the word GitHub/repo) and ask about its issues, pull requests, releases, commits or stats are answered from the GitHub REST API with any model: Bough sends read-only GET requests to `api.github.com` and gives the result to the model as fetched data. Pull requests are left out of "issues", and repos with issues turned off (such as `torvalds/linux`) are reported as such. Anonymous access allows 60 requests/hour per IP; set `BOUGH_GITHUB_TOKEN` (a fine-grained token with no extra permissions is enough for public repos) to raise that. `BOUGH_GITHUB_LOOKUP=off` disables it.
-
-gpt-oss models sometimes try to call a tool even when none was offered, and Groq rejects that with HTTP 400 `tool_use_failed`. Bough retries once with a "no tools" instruction instead of failing the reply, and if that also fails, the reply names the tool the model tried to call.
+Questions that name a repository (`github.com/owner/repo`, or `owner/repo` together with the word GitHub/repo) and ask about its issues, pull requests, releases, commits or stats are answered from the GitHub REST API, with any model. The requests go through the Rust `web_fetch` tool (GET only; its allowlist, public-IP check and size/time limits apply), so web fetch must be enabled and `api.github.com` allowlisted. Issues come from the issue search (`is:issue`, newest first), so pull requests are not mixed in; repos with issues turned off (such as `torvalds/linux`) are reported as such. GitHub allows 60 anonymous requests/hour per IP (search: 10/minute). `BOUGH_GITHUB_LOOKUP=off` disables it.
 
 ### Groq free-tier output limits
 
@@ -163,6 +161,8 @@ BOUGH_TTS_BACKEND=groq        # or elevenlabs to keep ElevenLabs as the voice
 ### Optional web fetch
 
 The web-fetch integration is disabled by default. Build the Rust CLI in `tools/web_fetch` with `cargo build --release`, then configure the executable and wrapper using absolute paths in `.env`. Set `BOUGH_WEB_FETCH_ALLOWED_HOSTS` explicitly before enabling `BOUGH_WEB_FETCH_ENABLED`. See `.env.example` for the relevant settings.
+
+With web fetch on, a URL pasted into an ordinary message is fetched too (not only `/fetch <url>`), when its host is allowlisted; `BOUGH_WEB_FETCH_AUTO=false` limits fetching to `/fetch`. The tool accepts `text/html`, `text/plain` and `application/json`. Example allowlist: `BOUGH_WEB_FETCH_ALLOWED_HOSTS=api.github.com,en.wikipedia.org,docs.python.org`. Rebuild after pulling changes to the tool: `cd tools/web_fetch && cargo build --release`.
 
 ## Project layout
 

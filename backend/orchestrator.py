@@ -48,7 +48,7 @@ from .memory.base import Owner
 from .memory.seed import SeedStore
 from .sessions import Session, SessionManager
 from . import github_tool
-from .web_tool import WebTool
+from .web_tool import WebTool, find_allowlisted_url
 
 DECISION_RULES = [
     "R0 rule-only paths: explicit 'remember ...' saves and /fetch run without asking the model to decide.",
@@ -78,7 +78,7 @@ class Orchestrator:
         self.language = LanguageAgent(settings, self.gateway)
         self.adaptation = Adaptation(settings)
         self.web_tool = WebTool(settings)
-        self.github = github_tool.GitHubTool(settings.github_token)
+        self.github = github_tool.GitHubTool(self.web_tool.fetch)
         self.seeds = SeedStore(enabled=settings.seed_enabled)
         self.branches = Branches(settings.max_reply_chars)
 
@@ -174,7 +174,7 @@ class Orchestrator:
                 # Groq browser search: leave room for the search plus a possible repair call.
                 limit = max(limit, self.settings.model_web_search_timeout_s + 2 * self.settings.model_timeout_s + 10)
             if self.settings.github_lookup == "auto" and github_tool.detect(probe["request"]) is not None:
-                limit += 2 * self.github.timeout_s        # repo info + one list request
+                limit += 45.0             # repo info + list (+ one smaller retry), each a web_fetch run
             final = await asyncio.wait_for(self._pipeline(ctx, sess, raw), timeout=limit)
         except asyncio.TimeoutError:
             status, reason = "timeout", f"cycle exceeded {limit}s"
@@ -383,6 +383,15 @@ class Orchestrator:
                 tool_result = await self._run_github(ctx, sess, gh_query)
                 ctx.data["tool_result"] = self._tool_brief(tool_result)
 
+        # ---- 3c. a URL pasted into an ordinary message (allowlisted hosts only) is fetched like /fetch
+        if tool_result is None and s.web_fetch_auto and s.web_fetch_enabled:
+            pasted = find_allowlisted_url(obs.request, s.web_fetch_allowed_hosts)
+            if pasted:
+                sel = self._rule_action("web_fetch", {"url": pasted, "points": [obs.request]}, "R0 pasted_url",
+                                        "the user's message contains this allowlisted URL")
+                tool_result = await self._run_web_fetch(ctx, sess, sel, note="URL pasted in the user's message")
+                ctx.data["tool_result"] = self._tool_brief(tool_result)
+
         # ---- 4. ROOT: one free-form model call
         await self._activate(ctx, "root", "model answers the request freely (plain text, no schema)")
         extra = {"tool_result": tool_result} if tool_result is not None else {}
@@ -577,7 +586,8 @@ class Orchestrator:
         return {k: self.adaptation.clamp(persisted.get(k, 0.0) + sess.bias.get(k, 0.0)) for k in kinds}
 
     # ---------------------------------------------------------------- tool: web_fetch
-    async def _run_web_fetch(self, ctx: CycleContext, sess: Session, sel) -> Dict[str, Any]:
+    async def _run_web_fetch(self, ctx: CycleContext, sess: Session, sel,
+                             note: str = "URL came from the user's /fetch command") -> Dict[str, Any]:
         """Execute the selected web_fetch. Permission, allowlist and network policy live in the trusted
         wrapper/CLI; this method only sequences, bounds and records. A stale or cancelled cycle never
         launches the tool, and a tool crash degrades to a truthful error result, never an exception."""
@@ -586,7 +596,7 @@ class Orchestrator:
         await self._activate(ctx, "tool", "execute selected web_fetch")
         ev_t = await self._emit(ctx, "tool", ET.TOOL_STARTED, {
             "tool": "web_fetch", "url": clip(url, 2048), "proposal_id": sel.proposal_id,
-            "note": "URL came from the user's /fetch command; allowlist and network policy are enforced by the CLI."})
+            "note": f"{note}; allowlist and network policy are enforced by the CLI."})
         ctx.parent_id = ev_t.event_id
         try:
             result = await self.web_tool.fetch(url)
@@ -611,10 +621,10 @@ class Orchestrator:
         await self._activate(ctx, "tool", f"GitHub API: {q.kind} of {q.full_name}")
         ev_t = await self._emit(ctx, "tool", ET.TOOL_STARTED, {
             "tool": "github", "url": f"https://api.github.com/repos/{q.full_name}", "lookup": q.kind,
-            "note": "The user named this repository; read-only GET requests to api.github.com."})
+            "note": "The user named this repository; read-only GET via web_fetch (allowlist enforced by the CLI)."})
         ctx.parent_id = ev_t.event_id
         try:
-            result = await asyncio.to_thread(self.github.lookup, q)
+            result = await self.github.lookup(q)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001

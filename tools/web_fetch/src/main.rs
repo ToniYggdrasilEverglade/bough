@@ -118,7 +118,7 @@ async fn fetch(request: Request, allowed: &HashSet<String>) -> Result<Page, Fail
             .timeout(Duration::from_secs(15)).build()
             .map_err(|_|err("INTERNAL_ERROR","Cannot build HTTP client"))?;
         let mut response=client.get(u.clone()).header(header::ACCEPT_ENCODING,"identity")
-            .header(header::ACCEPT,"text/html, text/plain")
+            .header(header::ACCEPT,"text/html, text/plain, application/json")
             .header(header::USER_AGENT,"web_fetch/0.1")
             .send().await.map_err(|e|err(if e.is_timeout(){"TIMEOUT"}else{"NETWORK_ERROR"},"HTTP request failed"))?;
         let status=response.status();
@@ -136,8 +136,8 @@ async fn fetch(request: Request, allowed: &HashSet<String>) -> Result<Page, Fail
         }
         let content_type=response.headers().get(header::CONTENT_TYPE).and_then(|v|v.to_str().ok())
             .unwrap_or("").split(';').next().unwrap_or("").trim().to_ascii_lowercase();
-        if content_type!="text/html" && content_type!="text/plain" {
-            return Err(err("UNSUPPORTED_CONTENT_TYPE","Only HTML and plain text are supported"));
+        if !matches!(content_type.as_str(),"text/html"|"text/plain"|"application/json") {
+            return Err(err("UNSUPPORTED_CONTENT_TYPE","Only HTML, plain text and JSON are supported"));
         }
         if response.content_length().map(|n|n>BODY_MAX as u64).unwrap_or(false) {
             return Err(err("RESPONSE_TOO_LARGE","Response body exceeds limit"));
@@ -203,6 +203,10 @@ mod tests {
         let mut t="\u{1f600}".repeat(40000); assert!(trim_bytes(&mut t,65535));assert!(t.len()<=65535);
         let p=Page{requested_url:"https://example.com/".into(),final_url:"https://example.com/".into(),status:200,content_type:"text/plain".into(),title:None,text:"\u{0001}".repeat(TEXT_MAX),truncated:false};
         let bytes=encode(Response::success(p));assert!(bytes.len()<=STDOUT_MAX);let v:serde_json::Value=serde_json::from_slice(&bytes).unwrap();assert_eq!(v["data"]["truncated"],true);
+    }
+    #[test] fn json_is_passed_through_as_text() {
+        let (title,text,truncated)=extract(br#"{"a": [1, 2], "b": "<p>x</p>"}"#,"application/json");
+        assert_eq!(title,None);assert_eq!(text,r#"{"a": [1, 2], "b": "<p>x</p>"}"#);assert!(!truncated);
     }
     #[test] fn rejects_extra_fields_and_boolean_version() {
         assert!(serde_json::from_str::<Request>(r#"{"version":true,"action":"web_fetch","url":"https://example.com"}"#).is_err());

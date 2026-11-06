@@ -128,7 +128,7 @@ def validate_response(raw, request_url, allowed):
                 raise ValueError("Invalid response schema")
             if not (type(d['status']) is int and 200 <= d['status'] < 300):
                 raise ValueError("Invalid response schema")
-            if not (d['content_type'] in ('text/html','text/plain')):
+            if not (d['content_type'] in ('text/html','text/plain','application/json')):
                 raise ValueError("Invalid response schema")
             if not (isinstance(d['text'], str) and len(d['text'].encode()) <= 65536):
                 raise ValueError("Invalid response schema")

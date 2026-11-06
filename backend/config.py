@@ -73,9 +73,11 @@ class Settings:
     # model first, and the main model answers from its findings. "" = no helper (say web search is unavailable).
     model_web_search_helper: str = "openai/gpt-oss-20b"
     model_web_search_helper_tokens: int = 700
-    # GitHub REST lookups for "newest issue / PR / release / commit in owner/repo" questions (read-only GET).
+    # GitHub REST lookups for "newest issue / PR / release / commit in owner/repo" questions, sent through
+    # web_fetch (needs BOUGH_WEB_FETCH_ENABLED and api.github.com in the allowlist).
     github_lookup: str = "auto"            # "auto" | "off"
-    github_token: str = field(default="", repr=False)   # optional; raises the 60 requests/hour anonymous limit
+    # Fetch a URL the user pasted into a normal message (not only /fetch), when its host is allowlisted.
+    web_fetch_auto: bool = True
     mock_latency_s: float = 0.0
     # --- web fetching (trusted server configuration only) ---
     web_fetch_enabled: bool = False
@@ -240,7 +242,7 @@ class Settings:
             model_web_search_helper=s("BOUGH_MODEL_WEB_SEARCH_HELPER", d.model_web_search_helper).strip(),
             model_web_search_helper_tokens=i("BOUGH_MODEL_WEB_SEARCH_HELPER_TOKENS", d.model_web_search_helper_tokens),
             github_lookup=s("BOUGH_GITHUB_LOOKUP", d.github_lookup).lower(),
-            github_token=s("BOUGH_GITHUB_TOKEN", e.get("GITHUB_TOKEN", d.github_token)),
+            web_fetch_auto=b("BOUGH_WEB_FETCH_AUTO", d.web_fetch_auto),
             web_fetch_enabled=b("BOUGH_WEB_FETCH_ENABLED", d.web_fetch_enabled),
             web_fetch_executable=s("BOUGH_WEB_FETCH_EXECUTABLE", d.web_fetch_executable),
             web_fetch_wrapper=s("BOUGH_WEB_FETCH_WRAPPER", d.web_fetch_wrapper),
@@ -298,7 +300,7 @@ class Settings:
         out = {}
         for fld in fields(self):
             if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper",
-                            "elevenlabs_api_key", "groq_api_key", "github_token"):
+                            "elevenlabs_api_key", "groq_api_key"):
                 continue
             out[fld.name] = getattr(self, fld.name)
         out["model_url"] = redact_url(self.model_url) if self.model_backend == "http" else None

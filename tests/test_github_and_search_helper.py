@@ -1,9 +1,9 @@
 """GitHub lookups for repo questions, and web search for Groq models without browser_search."""
+import asyncio
 import io
 import json
 import os
 import tempfile
-import urllib.error
 
 from fastapi.testclient import TestClient
 
@@ -11,6 +11,7 @@ import backend.models.http_model as hm
 from backend.app import create_app
 from backend.config import Settings
 from backend.github_tool import GitHubQuery, GitHubTool, detect
+from backend.web_tool import find_allowlisted_url
 
 GROQ = "https://api.groq.com/openai/v1/chat/completions"
 Q = ("whats the most recent issue oppened in the public github repo torvalds/linux? include its tittle, "
@@ -25,29 +26,34 @@ class Resp(io.BytesIO):
         return False
 
 
-def gh_opener(routes, seen=None):
-    def op(req, timeout):
-        path = req.full_url.replace("https://api.github.com", "").split("?")[0]
+def fake_fetch(routes, seen=None):
+    """Stands in for WebTool.fetch: returns the Rust tool's envelope."""
+    async def fetch(url):
         if seen is not None:
-            seen.append((req.full_url, req.get_method(), req.headers.get("Authorization")))
-        if path not in routes:
-            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b"{}"))
-        r = routes[path]
-        if isinstance(r, Exception):
-            raise r
-        return Resp(json.dumps(r).encode())
-    return op
+            seen.append(url)
+        path = url.replace("https://api.github.com", "").split("?")[0]
+        r = routes.get(path)
+        if r is None:
+            return {"version": 1, "ok": False, "data": None, "error": {"code": "HTTP_ERROR", "message": "HTTP status 404"}}
+        if isinstance(r, dict) and r.get("_error"):
+            return {"version": 1, "ok": False, "data": None, "error": r["_error"]}
+        text = json.dumps(r)
+        return {"version": 1, "ok": True, "error": None, "data": {
+            "requested_url": url, "final_url": url, "status": 200, "content_type": "application/json",
+            "title": None, "text": text, "truncated": False}}
+    return fetch
+
+
+def run(coro):
+    return asyncio.run(coro)
 
 
 LINUX = {"full_name": "torvalds/linux", "html_url": "https://github.com/torvalds/linux", "has_issues": False,
          "open_issues_count": 3}
 REPO = {"full_name": "a/b", "html_url": "https://github.com/a/b", "has_issues": True, "open_issues_count": 2}
-ISSUES = [
-    {"number": 9, "title": "PR, not an issue", "user": {"login": "x"}, "created_at": "2026-11-06T10:00:00Z",
-     "state": "open", "html_url": "https://github.com/a/b/pull/9", "pull_request": {}},
+SEARCH = {"total_count": 1, "items": [
     {"number": 8, "title": "Crash on start", "user": {"login": "alice"}, "created_at": "2026-11-05T09:08:07Z",
-     "state": "open", "html_url": "https://github.com/a/b/issues/8"},
-]
+     "state": "open", "html_url": "https://github.com/a/b/issues/8"}]}
 
 
 def test_detect():
@@ -60,29 +66,58 @@ def test_detect():
 
 
 def test_issues_disabled_is_reported_not_guessed():
-    out = GitHubTool(opener=gh_opener({"/repos/torvalds/linux": LINUX})).lookup(detect(Q))
+    out = run(GitHubTool(fake_fetch({"/repos/torvalds/linux": LINUX})).lookup(detect(Q)))
     assert out["ok"]
     body = json.loads(out["data"]["text"])
     assert "Issues are disabled" in body["note"] and body["newest_first"] == []
     assert out["data"]["final_url"] == "https://github.com/torvalds/linux"
 
 
-def test_newest_issue_skips_pull_requests_and_uses_token():
+def test_newest_issue_uses_issue_search_through_web_fetch():
     seen = []
-    tool = GitHubTool(token="ghp_test", opener=gh_opener({"/repos/a/b": REPO, "/repos/a/b/issues": ISSUES}, seen))
-    out = tool.lookup(GitHubQuery("a", "b", "issues"))
+    out = run(GitHubTool(fake_fetch({"/repos/a/b": REPO, "/search/issues": SEARCH}, seen)).lookup(
+        GitHubQuery("a", "b", "issues")))
     first = json.loads(out["data"]["text"])["newest_first"][0]
     assert first == {"number": 8, "title": "Crash on start", "author": "alice", "created_at": "2026-11-05T09:08:07Z",
                      "state": "open", "url": "https://github.com/a/b/issues/8"}
-    assert all(m == "GET" and a == "Bearer ghp_test" for _, m, a in seen)
-    assert "sort=created" in seen[1][0] and "direction=desc" in seen[1][0]
+    assert "q=repo:a%2Fb+is:issue" in seen[1] and "sort=created" in seen[1] and "order=desc" in seen[1]
+
+
+def test_truncated_list_is_retried_with_one_item():
+    seen = []
+    calls = {"n": 0}
+
+    async def fetch(url):
+        seen.append(url)
+        if "/search/issues" in url:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"version": 1, "ok": True, "error": None, "data": {"content_type": "application/json",
+                        "text": '{"items": [', "truncated": True, "final_url": url}}
+        return await fake_fetch({"/repos/a/b": REPO, "/search/issues": SEARCH})(url)
+
+    out = run(GitHubTool(fetch).lookup(GitHubQuery("a", "b", "issues")))
+    assert out["ok"] and "per_page=1" in seen[-1]
 
 
 def test_errors_are_truthful():
-    assert GitHubTool(opener=gh_opener({})).lookup(GitHubQuery("no", "pe", "issues"))["error"]["code"] == "NOT_FOUND"
-    limited = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b"{}"))
-    out = GitHubTool(opener=gh_opener({"/repos/a/b": limited})).lookup(GitHubQuery("a", "b", "issues"))
-    assert out["error"]["code"] == "RATE_LIMITED" and "BOUGH_GITHUB_TOKEN" in out["error"]["message"]
+    assert run(GitHubTool(fake_fetch({})).lookup(GitHubQuery("no", "pe", "issues")))["error"]["code"] == "NOT_FOUND"
+    off = {"/repos/a/b": {"_error": {"code": "PERMISSION_DENIED", "message": "disabled"}}}
+    out = run(GitHubTool(fake_fetch(off)).lookup(GitHubQuery("a", "b", "issues")))
+    assert "BOUGH_WEB_FETCH_ENABLED" in out["error"]["message"]
+    blocked = {"/repos/a/b": {"_error": {"code": "URL_BLOCKED", "message": "Hostname not allowlisted"}}}
+    out = run(GitHubTool(fake_fetch(blocked)).lookup(GitHubQuery("a", "b", "issues")))
+    assert "api.github.com" in out["error"]["message"]
+    limited = {"/repos/a/b": {"_error": {"code": "HTTP_ERROR", "message": "HTTP status 403"}}}
+    assert run(GitHubTool(fake_fetch(limited)).lookup(GitHubQuery("a", "b", "issues")))["error"]["code"] == "RATE_LIMITED"
+
+
+def test_find_allowlisted_url():
+    hosts = ("example.com", "api.github.com")
+    assert find_allowlisted_url("read https://example.com/a?b=1, please", hosts) == "https://example.com/a?b=1"
+    assert find_allowlisted_url("see https://evil.test/x and https://example.com/", hosts) == "https://example.com/"
+    assert find_allowlisted_url("see https://evil.test/x", hosts) is None
+    assert find_allowlisted_url("no url here", hosts) is None
 
 
 def settings(model="qwen/qwen3.8-27b", **kw):
@@ -103,31 +138,48 @@ def ok(content, executed=None):
 
 def test_repo_question_reaches_model_with_github_data(monkeypatch):
     bodies = []
-
-    gh = gh_opener({"/repos/torvalds/linux": LINUX})
+    fetched = []
 
     def fake(req, timeout):
-        if req.full_url.startswith("https://api.github.com"):
-            return gh(req, timeout)
         bodies.append(json.loads(req.data))
         return ok("torvalds/linux has GitHub issues disabled, so there is no most recent issue. "
                   "See https://github.com/torvalds/linux")
 
     monkeypatch.setattr(hm.urllib.request, "urlopen", fake)
+    monkeypatch.setattr("backend.web_tool.WebTool.fetch",
+                        lambda self, url: fake_fetch({"/repos/torvalds/linux": LINUX}, fetched)(url))
     final = chat(TestClient(create_app(settings())), Q)
-    sent = json.dumps(bodies[-1])
-    assert "Issues are disabled" in sent and "tools" not in bodies[-1]
+    assert fetched == ["https://api.github.com/repos/torvalds/linux"]
+    assert "Issues are disabled" in json.dumps(bodies[-1]) and "tools" not in bodies[-1]
     assert "issues disabled" in json.dumps(final)
+
+
+def test_pasted_url_is_fetched_only_when_allowlisted(monkeypatch):
+    fetched = []
+
+    async def fetch(self, url):
+        fetched.append(url)
+        return {"version": 1, "ok": True, "error": None, "data": {"requested_url": url, "final_url": url,
+                "status": 200, "content_type": "text/html", "title": "Example", "text": "Example Domain body",
+                "truncated": False}}
+
+    bodies = []
+    monkeypatch.setattr("backend.web_tool.WebTool.fetch", fetch)
+    monkeypatch.setattr(hm.urllib.request, "urlopen",
+                        lambda req, timeout: (bodies.append(json.loads(req.data)), ok("It is the Example Domain page."))[1])
+    on = dict(web_fetch_enabled=True, web_fetch_allowed_hosts=("example.com",))
+    chat(TestClient(create_app(settings(**on))), "what is on https://example.com/ ?")
+    assert fetched == ["https://example.com/"] and "Example Domain body" in json.dumps(bodies[-1])
+    chat(TestClient(create_app(settings(**on))), "what is on https://other.test/ ?")
+    chat(TestClient(create_app(settings(web_fetch_enabled=True, web_fetch_allowed_hosts=("example.com",),
+                                        web_fetch_auto=False))), "what is on https://example.com/ ?")
+    assert fetched == ["https://example.com/"]
 
 
 def test_github_lookup_off(monkeypatch):
     called = []
-    def fake(req, timeout):
-        if "api.github.com" in req.full_url:
-            called.append(1)
-        return ok("answer")
-
-    monkeypatch.setattr(hm.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(hm.urllib.request, "urlopen", lambda req, timeout: ok("answer"))
+    monkeypatch.setattr("backend.web_tool.WebTool.fetch", lambda self, url: called.append(url))
     chat(TestClient(create_app(settings(github_lookup="off"))), Q)
     assert called == []
 
