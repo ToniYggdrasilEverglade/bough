@@ -11,7 +11,8 @@ An experimental AI application with a Python/FastAPI backend, a browser dashboar
 - Optional Supabase authentication with user-scoped sessions and memory.
 - Configurable root and proposal pipelines, model-call budgets, timeouts, and response limits.
 - Optional read-only knowledge seeds and an allowlisted web-fetch integration.
-- Optional text-to-speech for replies through the ElevenLabs API, set up for the free plan.
+- Optional text-to-speech for replies through ElevenLabs (free-plan defaults) or Groq Orpheus.
+- Optional voice input: a Speak button transcribes your voice with Groq Whisper and reads the reply aloud.
 
 ## Quick start
 
@@ -125,6 +126,24 @@ The defaults are chosen for the free plan:
 
 Free-plan terms: personal, non-commercial use only, with attribution. The dashboard shows a "Voice by ElevenLabs" link next to each Listen button while text-to-speech is on. ElevenLabs is retiring its default voices on December 31, 2026; after that, set `BOUGH_ELEVENLABS_VOICE_ID` to a voice from My Voices (for example one made with Voice Design).
 
+### Groq voice and mic input
+
+Groq can handle the whole voice loop with the same key you use for the model: Whisper turns your speech into text, the Groq model answers, and Orpheus reads the reply aloud. Speech uses `GROQ_API_KEY`, or reuses `BOUGH_MODEL_API_KEY` when `BOUGH_MODEL_URL` points at `api.groq.com`.
+
+```dotenv
+BOUGH_MODEL_BACKEND=http
+BOUGH_MODEL_URL=https://api.groq.com/openai/v1/chat/completions
+BOUGH_MODEL_NAME=qwen/qwen3.8-27b
+BOUGH_MODEL_API_KEY=your-groq-key
+BOUGH_STT_BACKEND=groq        # Speak button -> Groq Whisper
+BOUGH_TTS_BACKEND=groq        # or elevenlabs to keep ElevenLabs as the voice
+```
+
+- **Speak button:** click to record, click again to send (recording stops on its own after 2 minutes). The transcribed text is sent as a normal message, and if text-to-speech is on the reply plays automatically. The browser asks for microphone permission; it works on `http://127.0.0.1` or HTTPS.
+- **Orpheus voice:** `canopylabs/orpheus-v1-english` with voices `autumn`, `diana`, `hannah`, `austin`, `daniel` and `troy` (`BOUGH_GROQ_TTS_VOICE`). Groq accepts 200 characters per request, so Bough splits replies at sentence breaks and joins the pieces into one WAV file. Accept the model's terms once in the [Groq console](https://console.groq.com/playground) first, otherwise Groq answers HTTP 400.
+- **Whisper:** `whisper-large-v3-turbo` by default (`BOUGH_GROQ_STT_MODEL`); Groq bills each clip as at least 10 seconds and the free tier caps uploads at 25 MB.
+- `<think>` blocks, links, tables and code blocks are removed before anything is spoken, with either voice provider.
+
 ### Optional web fetch
 
 The web-fetch integration is disabled by default. Build the Rust CLI in `tools/web_fetch` with `cargo build --release`, then configure the executable and wrapper using absolute paths in `.env`. Set `BOUGH_WEB_FETCH_ALLOWED_HOSTS` explicitly before enabling `BOUGH_WEB_FETCH_ENABLED`. See `.env.example` for the relevant settings.
@@ -154,13 +173,14 @@ requirements-dev.txt  Development dependencies
 - `GET /api/memories`, `POST /api/memories`, `DELETE /api/memories/{mid}` — manage memory.
 - `GET /api/adaptation` — inspect stored adaptation values.
 - `GET /api/me` — inspect authentication identity.
-- `POST /api/tts` — read text aloud with ElevenLabs (JSON `text`, optional `voice_id`); returns audio. Needs `BOUGH_TTS_BACKEND=elevenlabs`.
+- `POST /api/tts` — read text aloud (JSON `text`, optional `voice_id`); returns MP3 (ElevenLabs) or WAV (Groq). Needs `BOUGH_TTS_BACKEND`.
+- `POST /api/transcribe` — raw audio body (`Content-Type: audio/webm`, `audio/ogg`, `audio/mp4`, `audio/wav`, ...) to `{"text"}` via Groq Whisper. Needs `BOUGH_STT_BACKEND=groq`.
 - `WS /ws/{client_sid}` — chat and backend events over WebSocket.
 
 ## Safety and limitations
 
 This is a prototype. Keep the default loopback binding for local development, especially when authentication is off. Do not expose an unauthenticated instance to a network. The launcher refuses non-loopback binding unless explicitly overridden; that override is not a production deployment configuration.
 
-Text-to-speech sends the reply text (not your memories) to ElevenLabs when you press Listen.
+Text-to-speech sends the reply text (not your memories) to ElevenLabs or Groq when you press Listen. The Speak button sends your recording to Groq.
 
 HTTP model mode sends request context to the configured model endpoint. Use a provider and storage configuration appropriate for your data, and keep credentials out of version control.

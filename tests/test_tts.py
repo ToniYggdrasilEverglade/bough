@@ -129,3 +129,45 @@ def test_route_returns_audio(captured):
     assert cfg["enabled"] and cfg["attribution"] == "Voice by ElevenLabs"
     r = c.post("/api/tts", json={"text": "Hello"})
     assert r.status_code == 200 and r.headers["content-type"] == "audio/mpeg" and r.content == b"ID3fake-mp3"
+
+
+def test_speakable_groq_reply_shapes():
+    reply = ("<think>The user wants a list.</think>\n"
+             "See [the docs](https://docs.python.org/3/) or https://example.com/x?y=1.\n\n"
+             "| Model | Speed |\n|---|---|\n| flash | fast |\n\n"
+             "[reply cut off at the completion-token limit]")
+    out = speakable(reply)
+    assert "think" not in out.lower() and "user wants" not in out
+    assert "the docs" in out and "docs.python.org" not in out and "example.com" not in out
+    assert "---" not in out and "|" not in out and "Model, Speed" in out
+    assert "cut off" not in out
+
+
+def test_groq_reply_reaches_elevenlabs(monkeypatch):
+    """Full path: Groq chat-completions (faked) -> root pipeline -> reply -> /api/tts -> ElevenLabs (faked)."""
+    seen = {}
+    groq_reply = "<think>short answer</think>Python lists keep insertion order. See [docs](https://docs.python.org/3/)."
+
+    def fake_urlopen(req, timeout):
+        host = req.full_url.split("/")[2]
+        seen.setdefault(host, []).append(req)
+        if host == "api.groq.com":
+            assert req.get_header("Authorization") == "Bearer gsk_test"
+            body = {"choices": [{"message": {"content": groq_reply}, "finish_reason": "stop"}]}
+            return FakeResponse(json.dumps(body).encode())
+        assert host == "api.elevenlabs.io"
+        return FakeResponse(b"ID3groq-audio")
+
+    import backend.models.http_model as hm
+    monkeypatch.setattr(hm.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(tts_mod.urllib.request, "urlopen", fake_urlopen)
+    c = TestClient(create_app(settings(model_backend="http", model_name="qwen/qwen3-32b", model_api_key="gsk_test",
+                                       model_url="https://api.groq.com/openai/v1/chat/completions")))
+    result = c.post("/api/sessions/s1/chat", json={"text": "Do Python lists keep order?"}).json()
+    reply = result["final"]["text"]
+    assert "insertion order" in reply and seen["api.groq.com"]
+
+    r = c.post("/api/tts", json={"text": reply})
+    assert r.status_code == 200 and r.content == b"ID3groq-audio"
+    spoken = json.loads(seen["api.elevenlabs.io"][0].data)["text"]
+    assert "insertion order" in spoken and "think" not in spoken and "docs.python.org" not in spoken

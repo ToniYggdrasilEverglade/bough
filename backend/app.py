@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,12 +22,13 @@ from pydantic import BaseModel, Field
 from .auth import Authenticator, Principal
 from .config import LOOPBACK_HOSTS, Settings
 from .errors import (AuthRequired, BoughError, InputRejected, MemoryRejected, MemoryUnavailable, NotFound,
-                     TTSUnavailable)
+                     STTUnavailable, TTSUnavailable)
 from .memory import MemoryBackend, build_store
 from .models.base import ModelAdapter
 from .models.factory import build_adapter
 from .orchestrator import Orchestrator
-from .tts import ElevenLabsTTS, build_tts
+from .stt import GroqSTT, build_stt
+from .tts import TTS, build_tts
 
 log = logging.getLogger("bough.app")
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -85,13 +86,14 @@ def _origin_allowed(origin: Optional[str]) -> bool:
 
 def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapter] = None,
                store: Optional[MemoryBackend] = None, authenticator: Optional[Authenticator] = None,
-               tts: Optional[ElevenLabsTTS] = None) -> FastAPI:
+               tts: Optional[TTS] = None, stt: Optional[GroqSTT] = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or build_store(settings)
     adapter = adapter or build_adapter(settings)
     auth = authenticator or Authenticator(settings)
     orch = Orchestrator(settings, store, adapter)
     tts = tts or build_tts(settings)
+    stt = stt or build_stt(settings)
     if auth.required:
         log.info("auth: supabase (%s); memory backend: %s", settings.supabase_url, store.name)
     else:
@@ -106,11 +108,12 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
     app.state.orch = orch
     app.state.auth = auth
     app.state.tts = tts
+    app.state.stt = stt
 
     @app.exception_handler(BoughError)
     async def bough_error(_, exc: BoughError):
         code = (401 if isinstance(exc, AuthRequired) else 404 if isinstance(exc, NotFound)
-                else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, (MemoryUnavailable, TTSUnavailable)) else 400)
+                else 409 if isinstance(exc, MemoryRejected) else 503 if isinstance(exc, (MemoryUnavailable, TTSUnavailable, STTUnavailable)) else 400)
         headers = {"WWW-Authenticate": "Bearer"} if code == 401 else None
         return JSONResponse({"error": str(exc)}, status_code=code, headers=headers)
 
@@ -122,7 +125,8 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
 
     # ------------------------------------------------------------------ REST
     def describe() -> dict:
-        return {**orch.describe(), "tts": tts.describe() if tts else {"enabled": False}}
+        return {**orch.describe(), "tts": tts.describe() if tts else {"enabled": False},
+                "stt": stt.describe() if stt else {"enabled": False}}
 
     @app.get("/api/config")
     async def get_config():
@@ -176,11 +180,26 @@ def create_app(settings: Optional[Settings] = None, adapter: Optional[ModelAdapt
 
     @app.post("/api/tts")
     async def text_to_speech(body: TTSBody, user: Optional[Principal] = Depends(current_user)):
-        """Read a reply aloud with ElevenLabs. Same auth as every other /api route; the key stays here."""
+        """Read a reply aloud (ElevenLabs or Groq). Same auth as every other /api route; the key stays here."""
         if tts is None:
-            raise TTSUnavailable("text-to-speech is off (set BOUGH_TTS_BACKEND=elevenlabs and ELEVENLABS_API_KEY)")
+            raise TTSUnavailable("text-to-speech is off (set BOUGH_TTS_BACKEND=elevenlabs or groq)")
         audio = await tts.synthesize(body.text, body.voice_id)
         return Response(audio, media_type=tts.media_type, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/transcribe")
+    async def transcribe(request: Request, user: Optional[Principal] = Depends(current_user)):
+        """Mic button: raw audio body (Content-Type audio/webm, audio/ogg, ...) -> Groq Whisper -> {"text"}."""
+        if stt is None:
+            raise STTUnavailable("speech input is off (set BOUGH_STT_BACKEND=groq)")
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > stt.max_bytes:
+            raise InputRejected(f"recording is larger than {stt.max_bytes // 1_000_000} MB")
+        audio = bytearray()
+        async for chunk in request.stream():
+            audio += chunk
+            if len(audio) > stt.max_bytes:
+                raise InputRejected(f"recording is larger than {stt.max_bytes // 1_000_000} MB")
+        return {"text": await stt.transcribe(bytes(audio), request.headers.get("content-type"))}
 
     @app.get("/api/me")
     async def me(user: Optional[Principal] = Depends(current_user)):

@@ -71,13 +71,21 @@ class Settings:
     web_fetch_allowed_hosts: tuple[str, ...] = ()
     web_fetch_context_chars: int = 6000    # page text handed to the language model (the CLI returns up to 64 KiB)
     # --- text-to-speech (optional; ElevenLabs) ---
-    tts_backend: str = "off"               # "off" | "elevenlabs"
+    tts_backend: str = "off"               # "off" | "elevenlabs" | "groq"
     elevenlabs_api_key: str = field(default="", repr=False)  # SECRET: never exposed, not even in repr()
     # Defaults are chosen for the ElevenLabs FREE plan (10,000 credits/month, non-commercial, attribution):
     elevenlabs_voice_id: str = "JBFqnCBsd6RMkjVDRZzb"       # "George", a default voice (free tier OK; retired 2026-12-31)
     elevenlabs_model_id: str = "eleven_flash_v2_5"          # 0.5 credit/char -> ~20,000 chars/month on free
     elevenlabs_output_format: str = "mp3_44100_128"         # highest format on free (192 kbps / 44.1 kHz PCM are paid)
     elevenlabs_allow_paid_formats: bool = False  # set true after upgrading to use 192 kbps MP3 / 44.1 kHz PCM
+    # Groq speech (Orpheus TTS + Whisper STT). Key: GROQ_API_KEY, else BOUGH_MODEL_API_KEY when the model is on Groq.
+    groq_api_key: str = field(default="", repr=False)        # SECRET
+    groq_tts_model: str = "canopylabs/orpheus-v1-english"     # English only; 200 chars per request, WAV only
+    groq_tts_voice: str = "autumn"                           # autumn, diana, hannah, austin, daniel, troy
+    stt_backend: str = "off"               # "off" | "groq": mic button -> Groq Whisper -> text
+    groq_stt_model: str = "whisper-large-v3-turbo"
+    stt_language: str = "en"               # ISO-639-1 hint for Whisper; empty = auto-detect
+    stt_max_bytes: int = 25_000_000        # Groq free tier upload limit
     tts_max_chars: int = 1000              # per reply; longer replies are clipped (ElevenLabs bills per character)
     tts_timeout_s: float = 30.0
     # --- limits ---
@@ -140,8 +148,14 @@ class Settings:
                 raise ValueError("BOUGH_SUPABASE_PUBLISHABLE_KEY is required")
         if self.memory_backend == "supabase" and self.auth_mode != "supabase":
             raise ValueError("BOUGH_MEMORY_BACKEND=supabase needs BOUGH_AUTH_MODE=supabase (rows are per signed-in user)")
-        if self.tts_backend not in ("off", "elevenlabs"):
-            raise ValueError("BOUGH_TTS_BACKEND must be 'off' or 'elevenlabs'")
+        if self.tts_backend not in ("off", "elevenlabs", "groq"):
+            raise ValueError("BOUGH_TTS_BACKEND must be 'off', 'elevenlabs' or 'groq'")
+        if self.stt_backend not in ("off", "groq"):
+            raise ValueError("BOUGH_STT_BACKEND must be 'off' or 'groq'")
+        if (self.tts_backend == "groq" or self.stt_backend == "groq") and not self.groq_key():
+            raise ValueError("Groq speech needs GROQ_API_KEY (or BOUGH_MODEL_API_KEY with a Groq BOUGH_MODEL_URL)")
+        if not (1 <= self.stt_max_bytes <= 100_000_000):
+            raise ValueError("stt_max_bytes must be between 1 and 100000000")
         if self.tts_backend == "elevenlabs" and not self.elevenlabs_api_key:
             raise ValueError("BOUGH_TTS_BACKEND=elevenlabs needs ELEVENLABS_API_KEY")
         if not (1 <= self.tts_max_chars <= 10000):
@@ -200,6 +214,13 @@ class Settings:
             elevenlabs_model_id=s("BOUGH_ELEVENLABS_MODEL_ID", d.elevenlabs_model_id),
             elevenlabs_output_format=s("BOUGH_ELEVENLABS_OUTPUT_FORMAT", d.elevenlabs_output_format),
             elevenlabs_allow_paid_formats=b("BOUGH_ELEVENLABS_ALLOW_PAID_FORMATS", d.elevenlabs_allow_paid_formats),
+            groq_api_key=s("GROQ_API_KEY", d.groq_api_key),
+            groq_tts_model=s("BOUGH_GROQ_TTS_MODEL", d.groq_tts_model),
+            groq_tts_voice=s("BOUGH_GROQ_TTS_VOICE", d.groq_tts_voice).lower(),
+            stt_backend=s("BOUGH_STT_BACKEND", d.stt_backend).lower(),
+            groq_stt_model=s("BOUGH_GROQ_STT_MODEL", d.groq_stt_model),
+            stt_language=s("BOUGH_STT_LANGUAGE", d.stt_language).strip().lower(),
+            stt_max_bytes=i("BOUGH_STT_MAX_BYTES", d.stt_max_bytes),
             tts_max_chars=i("BOUGH_TTS_MAX_CHARS", d.tts_max_chars),
             tts_timeout_s=f("BOUGH_TTS_TIMEOUT_S", d.tts_timeout_s),
             mock_latency_s=f("BOUGH_MOCK_LATENCY_S", d.mock_latency_s),
@@ -225,6 +246,12 @@ class Settings:
             bias_step=f("BOUGH_BIAS_STEP", d.bias_step), bias_limit=f("BOUGH_BIAS_LIMIT", d.bias_limit),
         )
 
+    def groq_key(self) -> str:
+        """GROQ_API_KEY, or the model key when the chat model itself runs on Groq (one key for everything)."""
+        if self.groq_api_key:
+            return self.groq_api_key
+        return self.model_api_key if urlsplit(self.model_url).hostname == "api.groq.com" else ""
+
     def is_loopback(self) -> bool:
         return self.host in LOOPBACK_HOSTS
 
@@ -233,10 +260,11 @@ class Settings:
         out = {}
         for fld in fields(self):
             if fld.name in ("model_api_key", "model_url", "db_path", "web_fetch_executable", "web_fetch_wrapper",
-                            "elevenlabs_api_key"):
+                            "elevenlabs_api_key", "groq_api_key"):
                 continue
             out[fld.name] = getattr(self, fld.name)
         out["model_url"] = redact_url(self.model_url) if self.model_backend == "http" else None
         out["model_api_key_configured"] = bool(self.model_api_key)
         out["elevenlabs_api_key_configured"] = bool(self.elevenlabs_api_key)
+        out["groq_api_key_configured"] = bool(self.groq_key())
         return out

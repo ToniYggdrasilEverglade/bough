@@ -32,6 +32,10 @@ class TTSUnavailable(BoughError):
     """The text-to-speech provider could not produce audio (disabled, bad key, quota, network, timeout)."""
 
 
+class STTUnavailable(BoughError):
+    """Speech-to-text could not transcribe the recording (disabled, bad key, rate limit, network, timeout)."""
+
+
 class ModelError(BoughError):
     """Base class for model-adapter problems."""
 

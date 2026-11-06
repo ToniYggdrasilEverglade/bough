@@ -138,3 +138,4 @@ select { width: auto; }
 body.locked .layout, body.locked .rail { display: none; }
 .msg .meta a.attrib { color: var(--graphite); font-size: .72rem; text-decoration: none; }
 .msg .meta a.attrib:hover { text-decoration: underline; }
+button#mic.rec { background: var(--rose); border-color: var(--rose); color: var(--panel); }

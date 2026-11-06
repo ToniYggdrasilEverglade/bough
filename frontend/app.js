@@ -126,6 +126,7 @@ function onHello(msg) {
   $("#memory-toggle").checked = S.memoryEnabled;
   const mock = msg.config.model.is_mock;
   $("#mock-banner").hidden = !mock;
+  $("#mic").hidden = !(msg.config.stt && msg.config.stt.enabled);
   const chip = $("#model-chip"); chip.textContent = "model: " + msg.config.model.name; chip.className = "chip" + (mock ? " mock" : "");
   $("#calls-chip").textContent = "calls 0/" + msg.config.settings.max_model_calls;
   const root = msg.config.pipeline === "root";
@@ -348,17 +349,22 @@ function onResult(r) {
     meta.append(tag(res.error ? res.error : `bias ${res.bias_before} → ${res.bias_after}` + (res.persisted ? " (saved)" : " (session only)"), res.error ? "bad" : "ok"));
   }, class: "ghost fb", text: rating === "useful" ? "Useful" : "Not useful" });
   meta.append(rate("useful"), rate("not_useful"));
+  let listen = null;
   if (S.config && S.config.tts && S.config.tts.enabled) {
-    meta.append(listenButton(r.final.text));
-    // ElevenLabs' free plan requires attribution wherever its audio is used.
-    meta.append(el("a", { class: "attrib", href: S.config.tts.attribution_url, target: "_blank", rel: "noopener noreferrer",
-                          text: S.config.tts.attribution }));
+    listen = listenButton(r.final.text);
+    meta.append(listen);
+    // ElevenLabs' free plan requires attribution wherever its audio is used (Groq sends none).
+    if (S.config.tts.attribution) meta.append(el("a", { class: "attrib", href: S.config.tts.attribution_url, target: "_blank",
+                                                        rel: "noopener noreferrer", text: S.config.tts.attribution }));
   }
   if (S.memoryEnabled) meta.append(el("button", { class: "link", text: "Save summary", onclick: async (ev) => {
     const res = await api("POST", `/api/sessions/${sid}/cycles/${r.cycle_id}/save-summary`);
     ev.target.replaceWith(tag(res.error ? res.error : "summary saved", res.error ? "bad" : "ok")); loadMemories();
   } }));
   addMessage("system", r.final.text, meta);
+  // Spoken question -> spoken answer.
+  if (S.speakNext && listen) listen.click();
+  S.speakNext = false;
 }
 
 async function api(method, path, body) {
@@ -419,6 +425,58 @@ async function loadMemories() {
 }
 
 // ------------------------------------------------------------------ wiring
+// ------------------------------------------------------------------ speech input (Groq Whisper via the backend)
+// Click Speak to record, click again to send. The recording goes to /api/transcribe; the text is sent as a
+// normal message and, when text-to-speech is on, the reply is read aloud automatically.
+const Mic = { rec: null, chunks: [], timer: null, stream: null };
+const MIC_MAX_MS = 120000;
+function micType() {
+  for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"])
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  return "";
+}
+function micReset() {
+  clearTimeout(Mic.timer); Mic.timer = null; Mic.rec = null; Mic.chunks = [];
+  if (Mic.stream) { for (const t of Mic.stream.getTracks()) t.stop(); Mic.stream = null; }
+  const b = $("#mic"); b.textContent = "Speak"; b.disabled = false; b.classList.remove("rec");
+}
+async function micStart() {
+  $("#form-error").textContent = "";
+  if (!navigator.mediaDevices || !window.MediaRecorder) { $("#form-error").textContent = "This browser cannot record audio."; return; }
+  try { Mic.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $("#form-error").textContent = "Microphone blocked: " + e.message; return; }
+  const type = micType();
+  Mic.rec = new MediaRecorder(Mic.stream, type ? { mimeType: type } : undefined);
+  Mic.rec.addEventListener("dataavailable", (ev) => { if (ev.data.size) Mic.chunks.push(ev.data); });
+  Mic.rec.addEventListener("stop", micSend);
+  Mic.rec.start();
+  Mic.timer = setTimeout(() => Mic.rec && Mic.rec.state === "recording" && Mic.rec.stop(), MIC_MAX_MS);
+  const b = $("#mic"); b.textContent = "Stop and send"; b.classList.add("rec");
+}
+async function micSend() {
+  const type = (Mic.rec && Mic.rec.mimeType) || "audio/webm";
+  const blob = new Blob(Mic.chunks, { type });
+  const b = $("#mic"); b.textContent = "Transcribing…"; b.disabled = true;
+  if (Mic.stream) { for (const t of Mic.stream.getTracks()) t.stop(); Mic.stream = null; }
+  try {
+    const headers = { "Content-Type": type.split(";")[0] };
+    const token = await Auth.token();
+    if (token) headers.Authorization = "Bearer " + token;
+    const res = await fetch("/api/transcribe", { method: "POST", headers, body: blob });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!data.text) throw new Error("no speech detected");
+    $("#input").value = data.text;
+    S.speakNext = !!(S.config && S.config.tts && S.config.tts.enabled);
+    $("#chat-form").requestSubmit();
+  } catch (e) { $("#form-error").textContent = "Speech input: " + e.message; }
+  finally { micReset(); }
+}
+$("#mic").addEventListener("click", () => {
+  if (Mic.rec && Mic.rec.state === "recording") { Mic.rec.stop(); clearTimeout(Mic.timer); }
+  else if (!Mic.rec) micStart();
+});
+
 $("#chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("#input").value.trim();
