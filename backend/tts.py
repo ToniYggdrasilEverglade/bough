@@ -184,14 +184,15 @@ def _wav_parts(wav: bytes):
 
 
 def join_wavs(wavs: List[bytes]) -> bytes:
+    if not wavs:
+        raise TTSUnavailable("Groq returned no audio pieces")
     if len(wavs) == 1:
         return wavs[0]
-    fmt, chunks = None, []
-    for w in wavs:
+    fmt, first = _wav_parts(wavs[0])
+    chunks: List[bytes] = [first]
+    for w in wavs[1:]:
         f, data = _wav_parts(w)
-        if fmt is None:
-            fmt = f
-        elif f[:16] != fmt[:16]:
+        if f[:16] != fmt[:16]:
             raise TTSUnavailable("Groq audio pieces had different formats")
         chunks.append(data)
     data = b"".join(chunks)
